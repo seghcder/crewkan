@@ -88,6 +88,10 @@ class CreateTaskInput(BaseModel):
         default=None,
         description="Optional due date (free-form string, e.g. '2025-12-31').",
     )
+    requested_by: Optional[str] = Field(
+        default=None,
+        description="Agent ID that requested this task (for completion notifications).",
+    )
 
 
 # -----------------------------
@@ -164,6 +168,7 @@ def make_board_tools(board_root: str, agent_id: str) -> list[BaseTool]:
         priority: Optional[str] = None,
         tags: Optional[List[str]] = None,
         due_date: Optional[str] = None,
+        requested_by: Optional[str] = None,
     ) -> str:
         """
         Create a new task and return its id.
@@ -177,6 +182,7 @@ def make_board_tools(board_root: str, agent_id: str) -> list[BaseTool]:
                 priority=priority,
                 tags=tags,
                 due_date=due_date,
+                requested_by=requested_by or agent_id,  # Default to current agent if not specified
             )
             return f"Created task {task_id}"
         except BoardError as e:

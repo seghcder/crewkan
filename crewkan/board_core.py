@@ -295,6 +295,7 @@ class BoardClient:
             "created_at": created_at,
             "updated_at": created_at,
             "due_date": due_date,
+            "requested_by": requested_by or self.agent_id,  # Track who requested this task
             "history": [
                 {
                     "at": created_at,
