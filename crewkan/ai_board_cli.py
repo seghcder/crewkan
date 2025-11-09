@@ -62,6 +62,24 @@ def find_task_file(root: Path, task_id: str) -> Path:
     raise RuntimeError(f"Task {task_id} not found under {tasks_root}")
 
 
+# Workspace utilities
+
+def create_symlink(target: Path, link_path: Path):
+    """
+    Create a symlink link_path -> target.
+    Overwrites any existing file/symlink at link_path.
+    """
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    if link_path.exists() or link_path.is_symlink():
+        link_path.unlink()
+    link_path.symlink_to(target)
+
+
+def remove_symlink(link_path: Path):
+    if link_path.is_symlink():
+        link_path.unlink()
+
+
 # Agent commands
 
 def cmd_list_agents(args):
@@ -316,6 +334,83 @@ def cmd_validate(args):
         sys.exit(1)
 
 
+def cmd_start_task(args):
+    root = Path(args.root).resolve()
+    agents = load_agents(root)
+    board = load_board(root)
+
+    valid_ids = {a["id"] for a in agents["agents"]}
+    if args.agent not in valid_ids:
+        raise RuntimeError(f"Unknown agent '{args.agent}'")
+
+    # Locate the task
+    task_path = find_task_file(root, args.id)
+    task = load_yaml(task_path)
+
+    col_ids = get_column_ids(board)
+    target_column = args.column or "doing"
+    if target_column not in col_ids:
+        raise RuntimeError(f"Unknown column '{target_column}'")
+
+    # Move task into the target column (if needed)
+    old_column = task.get("column", task.get("status"))
+    if old_column != target_column:
+        new_dir = root / "tasks" / target_column
+        new_dir.mkdir(parents=True, exist_ok=True)
+        new_path = new_dir / task_path.name
+
+        task["column"] = target_column
+        task["status"] = target_column
+        task["updated_at"] = now_iso()
+        task.setdefault("history", []).append(
+            {
+                "at": task["updated_at"],
+                "by": "cli",
+                "event": "moved",
+                "details": f"{old_column} -> {target_column}",
+            }
+        )
+
+        save_yaml(new_path, task)
+        if new_path != task_path:
+            task_path.unlink()
+        task_path = new_path
+
+    # Create workspace symlink
+    ws_link = root / "workspaces" / args.agent / target_column / task_path.name
+    create_symlink(task_path, ws_link)
+
+    print(f"Agent {args.agent} started work on {args.id} in column {target_column}")
+    print(f"Workspace link: {ws_link}")
+
+
+def cmd_stop_task(args):
+    root = Path(args.root).resolve()
+
+    # Workspace link (we don't need to touch canonical file)
+    # We just need to know which column it's in; user passes it or we search.
+    agent_ws_root = root / "workspaces" / args.agent
+
+    if args.column:
+        link = agent_ws_root / args.column / f"{args.id}.yaml"
+        if not link.exists():
+            print(f"No workspace link found for {args.id} in {args.column} for agent {args.agent}")
+            return
+        remove_symlink(link)
+        print(f"Agent {args.agent} stopped work on {args.id} in column {args.column}")
+    else:
+        # Search all columns under this agent's workspace
+        found = False
+        if agent_ws_root.exists():
+            for p in agent_ws_root.rglob(f"{args.id}.yaml"):
+                if p.is_symlink():
+                    remove_symlink(p)
+                    print(f"Removed workspace link: {p}")
+                    found = True
+        if not found:
+            print(f"No workspace link found for {args.id} for agent {args.agent}")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Filesystem-based task board for AI agents."
@@ -402,6 +497,25 @@ def build_parser():
 
     p_validate = sub.add_parser("validate", help="Validate board structure")
     p_validate.set_defaults(func=cmd_validate)
+
+    # Workspace commands
+    p_start_task = sub.add_parser("start-task", help="Agent starts work on a task")
+    p_start_task.add_argument("--id", required=True, help="Task id")
+    p_start_task.add_argument("--agent", required=True, help="Agent id")
+    p_start_task.add_argument(
+        "--column",
+        help="Column to move task into (default: doing)",
+    )
+    p_start_task.set_defaults(func=cmd_start_task)
+
+    p_stop_task = sub.add_parser("stop-task", help="Agent stops work on a task (remove workspace link)")
+    p_stop_task.add_argument("--id", required=True, help="Task id")
+    p_stop_task.add_argument("--agent", required=True, help="Agent id")
+    p_stop_task.add_argument(
+        "--column",
+        help="Column the task is in (if omitted, search all)",
+    )
+    p_stop_task.set_defaults(func=cmd_stop_task)
 
     return parser
 
