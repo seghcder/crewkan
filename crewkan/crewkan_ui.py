@@ -245,15 +245,19 @@ def main() -> None:
 
     st.title("AI Agent Task Board")
 
-    # Auto-refresh if filesystem changes detected
-    if "last_check" not in st.session_state:
-        st.session_state.last_check = time.time()
+    # Auto-refresh if filesystem changes detected - DISABLED (may interfere with form submission)
+    # if "last_check" not in st.session_state:
+    #     st.session_state.last_check = time.time()
+    # 
+    # # Check for filesystem changes (simple polling)
+    # current_time = time.time()
+    # if current_time - st.session_state.last_check > 2.0:  # Check every 2 seconds
+    #     st.session_state.last_check = current_time
+    #     # Trigger rerun if board files changed (Streamlit will handle this)
+    #     st.rerun()
     
-    # Check for filesystem changes (simple polling)
-    current_time = time.time()
-    if current_time - st.session_state.last_check > 2.0:  # Check every 2 seconds
-        st.session_state.last_check = current_time
-        # Trigger rerun if board files changed (Streamlit will handle this)
+    # Manual refresh button instead
+    if st.button("🔄 Refresh Board", help="Manually refresh the board to see latest changes"):
         st.rerun()
 
     board = load_board()
