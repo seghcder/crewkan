@@ -1,3 +1,4 @@
+version: int(required=False)
 agents: list(include('agent_schema'), min=0)
 
 ---

@@ -12,11 +12,13 @@ This demonstrates:
 
 import os
 import sys
-import shutil
+import argparse
+import random
 from pathlib import Path
 from typing import Annotated, TypedDict
 import asyncio
 import json
+import time
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,6 +42,8 @@ class AgentState(TypedDict):
     task_id: str | None  # Current task being worked on
     board_root: str  # Board directory
     tasks_created: bool  # Whether CEO has created all tasks
+    last_fanout_time: float  # Timestamp of last fanout routing to prevent rapid re-routing
+    total_tasks: int  # Total number of tasks to create
 
 
 # ============================================================================
@@ -73,24 +77,26 @@ def all_tasks_done(board_root: str, expected_total: int = 30) -> bool:
 # Agent Nodes
 # ============================================================================
 
-def create_ceo_node(board_root: str):
+def create_ceo_node(board_root: str, tasks_per_worker: int = 10):
     """Create CEO agent node that creates tasks and monitors completion."""
     
     async def ceo_agent(state: AgentState):
-        """CEO agent: Creates 30 tasks (10 each for COO, CFO, CTO) and monitors."""
+        """CEO agent: Creates tasks (tasks_per_worker each for COO, CFO, CTO) and monitors."""
         tasks_created = state.get("tasks_created", False)
+        total_tasks = state.get("total_tasks", tasks_per_worker * 3)
         
         # If tasks haven't been created yet, create them
         if not tasks_created:
             client = BoardClient(board_root, "ceo")
             
-            # Check if tasks already exist (in case of concurrent calls)
+            # Check if tasks already exist (work resumption - don't recreate)
             existing_counts = count_tasks_by_status(board_root)
-            if existing_counts.get("backlog", 0) >= 30:
-                # Tasks already created, just mark as created
+            existing_total = sum(existing_counts.values())
+            if existing_total >= total_tasks:
+                # Tasks already exist, just mark as created (work resumption)
                 return {"tasks_created": True}
             
-            # Create 10 tasks for each agent (COO, CFO, CTO)
+            # Create tasks_per_worker tasks for each agent (COO, CFO, CTO)
             agents = ["coo", "cfo", "cto"]
             task_titles = {
                 "coo": [
@@ -104,6 +110,11 @@ def create_ceo_node(board_root: str):
                     "Enhance customer service",
                     "Optimize resource allocation",
                     "Review safety protocols",
+                    "Develop operational metrics",
+                    "Create process documentation",
+                    "Train operations team",
+                    "Review compliance standards",
+                    "Optimize inventory management",
                 ],
                 "cfo": [
                     "Prepare quarterly financial report",
@@ -116,6 +127,11 @@ def create_ceo_node(board_root: str):
                     "Review pricing strategy",
                     "Analyze profitability",
                     "Update financial forecasts",
+                    "Review accounts receivable",
+                    "Analyze cost structure",
+                    "Prepare board presentation",
+                    "Review financial controls",
+                    "Optimize capital allocation",
                 ],
                 "cto": [
                     "Design new system architecture",
@@ -128,19 +144,25 @@ def create_ceo_node(board_root: str):
                     "Evaluate new technologies",
                     "Improve system monitoring",
                     "Plan technical roadmap",
+                    "Review API design",
+                    "Optimize application performance",
+                    "Implement backup strategy",
+                    "Review security policies",
+                    "Plan capacity scaling",
                 ],
             }
             
             created_tasks = []
+            priorities = ["high", "medium", "low"]
+            
             for agent_id in agents:
                 titles = task_titles[agent_id]
-                # Assign priorities: first 3 high, next 4 medium, last 3 low
-                priorities = ["high"] * 3 + ["medium"] * 4 + ["low"] * 3
-                
-                for i, title in enumerate(titles):
-                    priority = priorities[i]
+                # Create tasks_per_worker tasks with random priorities
+                for i in range(tasks_per_worker):
+                    title = titles[i % len(titles)]  # Cycle through titles if needed
+                    priority = random.choice(priorities)  # Random priority
                     task_id = client.create_task(
-                        title=title,
+                        title=f"{title} ({i+1})",
                         description=f"Task {i+1} for {agent_id.upper()}",
                         column="backlog",
                         assignees=[agent_id],
@@ -154,7 +176,7 @@ def create_ceo_node(board_root: str):
             }
         
         # After tasks are created, monitor completion (idempotent - just check status)
-        # Don't update messages to avoid state conflicts
+        # Don't update state to avoid conflicts when called multiple times
         return {}
     
     return ceo_agent
@@ -178,8 +200,9 @@ def create_worker_node(board_root: str, worker_id: str):
         if doing_tasks:
             task = doing_tasks[0]
             task_id = task["id"]
-            # Simulate work (10 seconds)
-            await asyncio.sleep(10)
+            # Simulate work (random 2-5 seconds)
+            work_time = random.uniform(2.0, 5.0)
+            await asyncio.sleep(work_time)
             # Move to done
             client.move_task(task_id, "done", notify_on_completion=True)
             return {
@@ -237,7 +260,8 @@ def create_fanout_node():
     """Create a fan-out node that routes to all workers."""
     async def fanout(state: AgentState):
         """Pass through node that allows routing to multiple workers."""
-        return state
+        # Update last_fanout_time to prevent rapid re-routing
+        return {"last_fanout_time": time.time()}
     
     return fanout
 
@@ -257,36 +281,43 @@ def should_continue(state: AgentState) -> str:
     """Conditional routing: check if all tasks are done."""
     board_root = state["board_root"]
     tasks_created = state.get("tasks_created", False)
+    total_tasks = state.get("total_tasks", 30)
+    last_fanout_time = state.get("last_fanout_time", 0.0)
+    current_time = time.time()
     
     if not tasks_created:
         return "fanout"  # Go to fanout which routes to all workers
     
-    if all_tasks_done(board_root, expected_total=30):
+    if all_tasks_done(board_root, expected_total=total_tasks):
         return "end"  # All done, exit
+    
+    # Only route to fanout if enough time has passed since last routing
+    # This prevents exponential growth when CEO is called multiple times concurrently
+    # 0.1 seconds should be enough to let one call through while blocking rapid re-routing
+    if current_time - last_fanout_time > 0.1:
+        return "fanout"
     else:
-        return "fanout"  # Continue processing via fanout
+        return "end"  # End this execution path to prevent recursion
 
 
 # ============================================================================
 # Graph Construction
 # ============================================================================
 
-def create_delegation_graph(board_root: str):
+def create_delegation_graph(board_root: str, tasks_per_worker: int = 10):
     """Create the LangGraph for CEO delegation with continuous task processing."""
     
     graph = StateGraph(AgentState)
     
     # Add nodes
-    ceo_node = create_ceo_node(board_root)
+    ceo_node = create_ceo_node(board_root, tasks_per_worker)
     fanout_node = create_fanout_node()
-    collector_node = create_collector_node()
     coo_node = create_worker_node(board_root, "coo")
     cfo_node = create_worker_node(board_root, "cfo")
     cto_node = create_worker_node(board_root, "cto")
     
     graph.add_node("ceo", ceo_node)
     graph.add_node("fanout", fanout_node)
-    graph.add_node("collector", collector_node)
     graph.add_node("coo", coo_node)
     graph.add_node("cfo", cfo_node)
     graph.add_node("cto", cto_node)
@@ -310,13 +341,11 @@ def create_delegation_graph(board_root: str):
     graph.add_edge("fanout", "cfo")
     graph.add_edge("fanout", "cto")
     
-    # Workers process tasks and route to collector
-    graph.add_edge("coo", "collector")
-    graph.add_edge("cfo", "collector")
-    graph.add_edge("cto", "collector")
-    
-    # Collector routes to CEO (only after all workers complete)
-    graph.add_edge("collector", "ceo")
+    # Workers process tasks and route directly to CEO
+    # CEO is idempotent, so multiple calls are safe
+    graph.add_edge("coo", "ceo")
+    graph.add_edge("cfo", "ceo")
+    graph.add_edge("cto", "ceo")
     
     return graph.compile(checkpointer=MemorySaver(), interrupt_before=[], interrupt_after=[])
 
@@ -328,67 +357,90 @@ def create_delegation_graph(board_root: str):
 async def main():
     """Run the CEO delegation example with continuous task processing."""
     
-    # Setup board - clean existing board first
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="CEO delegation workflow with continuous task processing")
+    parser.add_argument(
+        "--tasks-per-worker",
+        type=int,
+        default=10,
+        help="Number of tasks to create per worker (default: 10)"
+    )
+    args = parser.parse_args()
+    tasks_per_worker = args.tasks_per_worker
+    total_tasks = tasks_per_worker * 3
+    
+    # Setup board - don't reset, support work resumption
     board_root = Path("examples/ceo_delegation_board")
-    if board_root.exists():
-        shutil.rmtree(board_root)
     board_root.mkdir(parents=True, exist_ok=True)
     
-    # Initialize board
-    init_board(
-        board_root,
-        board_id="ceo-delegation",
-        board_name="CEO Delegation Example",
-        owner_agent_id="ceo",
-        default_superagent_id="ceo",
-    )
-    
-    # Add executive agents (COO, CFO, CTO)
-    from crewkan.crewkan_cli import cmd_add_agent
-    import argparse
-    
-    class Args:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    executives = [
-        ("coo", "Chief Operating Officer", "Operations"),
-        ("cfo", "Chief Financial Officer", "Finance"),
-        ("cto", "Chief Technology Officer", "Technology"),
-    ]
-    
-    for agent_id, name, role in executives:
-        args = Args(root=str(board_root), id=agent_id, name=name, role=role, kind="ai")
-        cmd_add_agent(args)
+    # Initialize board only if it doesn't exist (work resumption)
+    if not (board_root / "board.yaml").exists():
+        init_board(
+            board_root,
+            board_id="ceo-delegation",
+            board_name="CEO Delegation Example",
+            owner_agent_id="ceo",
+            default_superagent_id="ceo",
+        )
+        
+        # Add executive agents (COO, CFO, CTO) only if they don't exist
+        from crewkan.crewkan_cli import cmd_add_agent
+        
+        class Args:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+        
+        executives = [
+            ("coo", "Chief Operating Officer", "Operations"),
+            ("cfo", "Chief Financial Officer", "Finance"),
+            ("cto", "Chief Technology Officer", "Technology"),
+        ]
+        
+        # Check existing agents to avoid duplicates
+        from crewkan.utils import load_yaml
+        agents_path = board_root / "agents" / "agents.yaml"
+        if agents_path.exists():
+            agents_data = load_yaml(agents_path, default={"agents": []})
+            existing_ids = {a.get("id") for a in agents_data.get("agents", [])}
+        else:
+            existing_ids = set()
+        
+        for agent_id, name, role in executives:
+            if agent_id not in existing_ids:
+                args = Args(root=str(board_root), id=agent_id, name=name, role=role, kind="ai")
+                cmd_add_agent(args)
     
     # Create and run graph
-    graph = create_delegation_graph(str(board_root))
+    graph = create_delegation_graph(str(board_root), tasks_per_worker)
     
     initial_state = {
-        "messages": [{"role": "user", "content": "Create 30 tasks (10 each for COO, CFO, CTO) and monitor their completion"}],
+        "messages": [{"role": "user", "content": f"Create {total_tasks} tasks ({tasks_per_worker} each for COO, CFO, CTO) and monitor their completion"}],
         "agent_id": "ceo",
         "task_id": None,
         "board_root": str(board_root),
         "tasks_created": False,
+        "last_fanout_time": 0.0,
+        "total_tasks": total_tasks,
     }
     
     config = {
         "configurable": {
             "thread_id": "1",
-            "recursion_limit": 1000
-        }
+        },
+        "recursion_limit": 1000
     }
     
     print("=" * 60)
     print("Starting CEO delegation workflow...")
-    print("CEO will create 30 tasks (10 each for COO, CFO, CTO)")
+    print(f"CEO will create {total_tasks} tasks ({tasks_per_worker} each for COO, CFO, CTO)")
     print("Agents will process tasks: backlog → todo → doing → done")
-    print("Each task takes 10 seconds to complete")
+    print("Each task takes 2-5 seconds to complete (random)")
+    print("Task priorities are assigned randomly")
     print("=" * 60)
     
     iteration = 0
-    async for event in graph.astream(initial_state, config):
+    async for event in graph.astream(initial_state, config, recursion_limit=1000):
         iteration += 1
         node_name = list(event.keys())[0]
         state = event[node_name]

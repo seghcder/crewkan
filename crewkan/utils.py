@@ -65,7 +65,10 @@ def _validate_schema(data: Dict[str, Any], schema_path: Path, file_path: Path) -
     
     try:
         schema = yamale.make_schema(schema_path)
-        yamale.validate(schema, yamale.make_data(content=data))
+        # Convert dict to YAML string for yamale (yamale.make_data expects a string, not a dict)
+        yaml_str = yaml.dump(data, default_flow_style=False)
+        yaml_data = yamale.make_data(content=yaml_str)
+        yamale.validate(schema, yaml_data)
         logger.debug(f"Schema validation passed for {file_path}")
     except yamale.YamaleError as e:
         error_msg = f"Schema validation failed for {file_path}: {e}"

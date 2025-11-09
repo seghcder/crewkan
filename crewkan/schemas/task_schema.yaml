@@ -1,3 +1,4 @@
+version: int(required=False)
 id: str()
 title: str()
 description: str(required=False)
