@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import logging
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,8 +15,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 from crewkan.board_core import BoardClient, BoardError
 
-# Set up logging
+# Set up logging to file in tmp directory
+log_dir = Path(__file__).resolve().parent.parent.parent / "tmp"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_file = log_dir / f"crewkan_ui_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stderr),  # Also log to stderr
+    ]
+)
+
 logger = logging.getLogger(__name__)
+logger.info(f"=== CrewKan UI Starting ===")
+logger.info(f"Log file: {log_file}")
+logger.info(f"Python: {sys.executable}")
+logger.info(f"Working directory: {os.getcwd()}")
 
 # Get board root from environment variable (re-evaluated each time)
 def get_board_root() -> Path:
@@ -190,6 +209,9 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
 
 def main() -> None:
     st.set_page_config(page_title="AI Agent Board", layout="wide")
+    
+    logger.info("=== Main function called ===")
+    logger.info(f"Session state keys: {list(st.session_state.keys())}")
 
     st.title("AI Agent Task Board")
 
