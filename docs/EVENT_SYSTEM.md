@@ -33,8 +33,8 @@ data:
 
 ## Event Types
 
-- `task_completed`: Task moved to "done" column
-- `task_assigned`: Task assigned to an agent (future)
+- `task_completed`: Task moved to "done" column (automatically created)
+- `task_assigned`: Task assigned to an agent (automatically created when task assigned)
 - `task_updated`: Task fields updated (future)
 - `task_blocked`: Task moved to "blocked" (future)
 
@@ -75,7 +75,16 @@ mark_event_read(board_root, "ceo", "EVT-123")
 from crewkan.board_langchain_tools import make_event_tools
 
 event_tools = make_event_tools(board_root, "ceo")
-# Add to agent's tool list
+# Tools available:
+# - list_events: List pending notifications
+# - mark_event_read: Mark a specific event as read
+# - get_event: Get details of a specific event
+# - clear_all_events: Mark all pending events as read
+
+# Example usage in agent:
+events = list_events_tool.invoke({"event_type": "task_completed", "limit": 10})
+# Process events...
+clear_all_events_tool.invoke({})  # Clear after processing
 ```
 
 ## Task Requestor Tracking

@@ -39,7 +39,7 @@ def run_coverage_comprehensive():
     print("=" * 70)
     
     # 1. Import and call setup functions
-    print("\n[1/9] Testing setup functions...")
+    print("\n[1/10] Testing setup functions...")
     from crewkan.board_init import init_board
     
     temp_dir = Path(tempfile.mkdtemp())
@@ -72,7 +72,7 @@ def run_coverage_comprehensive():
             shutil.rmtree(temp_dir)
     
     # 2. Import and call CLI functions directly
-    print("\n[2/7] Testing CLI functions...")
+    print("\n[2/10] Testing CLI functions...")
     test_board = temp_dir / "coverage_test_board"
     try:
         init_board(test_board, "test", "Test", "test-agent", "test-agent")
@@ -707,7 +707,7 @@ def run_coverage_comprehensive():
             shutil.rmtree(temp_dir)
     
     # 4. Import and call UI functions directly
-    print("\n[4/7] Testing UI functions...")
+    print("\n[4/10] Testing UI functions...")
     test_board = temp_dir / "coverage_test_board"
     try:
         init_board(test_board, "test", "Test", "test-agent", "test-agent")
@@ -900,7 +900,7 @@ def run_coverage_comprehensive():
             del os.environ["CREWKAN_BOARD_ROOT"]
     
     # 5. Test logging configuration
-    print("\n[5/9] Testing logging configuration...")
+    print("\n[5/10] Testing logging configuration...")
     try:
         from crewkan.logging_config import setup_logging, get_logger
         
@@ -1210,7 +1210,31 @@ def run_coverage_comprehensive():
                 result = comment_tool.invoke({"task_id": "nonexistent", "comment": "Test"})
                 assert "ERROR" in result
         
+        # Test event tools
+        from crewkan.board_langchain_tools import make_event_tools
+        event_tools = make_event_tools(str(test_board), "test-agent")
+        
+        if event_tools:
+            # Test list_events
+            list_tool = next((t for t in event_tools if t.name == "list_events"), None)
+            if list_tool:
+                result = list_tool.invoke({"event_type": None, "limit": 10})
+                # Should return empty list or events
+            
+            # Test get_event (with non-existent event)
+            get_tool = next((t for t in event_tools if t.name == "get_event"), None)
+            if get_tool:
+                result = get_tool.invoke({"event_id": "EVT-nonexistent"})
+                assert "not found" in result
+            
+            # Test clear_all_events
+            clear_tool = next((t for t in event_tools if t.name == "clear_all_events"), None)
+            if clear_tool:
+                result = clear_tool.invoke({})
+                # Should return "Cleared X events"
+        
         print("  ✓ LangChain tools tested")
+        print("  ✓ Event tools tested")
     except Exception as e:
         print(f"  ✗ LangChain tools error: {e}")
         import traceback

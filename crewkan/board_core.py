@@ -28,8 +28,25 @@ class BoardClient:
         self.root = Path(root).resolve()
         self.agent_id = agent_id
 
-        self.board = load_yaml(self.root / "board.yaml") or {}
-        self.agents_data = load_yaml(self.root / "agents" / "agents.yaml", default={"agents": []})
+        try:
+            self.board = load_yaml(self.root / "board.yaml") or {}
+        except Exception as e:
+            raise BoardError(
+                f"Failed to load board.yaml from {self.root}: {e}. "
+                f"File may be corrupted. Check logs for details."
+            ) from e
+        
+        try:
+            self.agents_data = load_yaml(
+                self.root / "agents" / "agents.yaml",
+                default={"agents": []}
+            )
+        except Exception as e:
+            raise BoardError(
+                f"Failed to load agents.yaml from {self.root}: {e}. "
+                f"File may be corrupted. Check logs for details."
+            ) from e
+        
         if "agents" not in self.agents_data:
             self.agents_data["agents"] = []
 
@@ -286,6 +303,40 @@ class BoardClient:
             }
         )
         save_yaml(path, task)
+        
+        # Create assignment events for newly assigned agents
+        if not keep_existing:
+            # All assignees are new
+            for assignee in assignees:
+                if assignee != self.agent_id:  # Don't notify self
+                    try:
+                        from crewkan.board_events import create_assignment_event
+                        create_assignment_event(
+                            board_root=self.root,
+                            task_id=task_id,
+                            assigned_to=assignee,
+                            assigned_by=self.agent_id,
+                        )
+                        logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create assignment event: {e}")
+        else:
+            # Only notify newly added assignees
+            old_assignees_set = set(old_assignees)
+            for assignee in assignees:
+                if assignee not in old_assignees_set and assignee != self.agent_id:
+                    try:
+                        from crewkan.board_events import create_assignment_event
+                        create_assignment_event(
+                            board_root=self.root,
+                            task_id=task_id,
+                            assigned_to=assignee,
+                            assigned_by=self.agent_id,
+                        )
+                        logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                    except Exception as e:
+                        logger.warning(f"Failed to create assignment event: {e}")
+        
         return f"Reassigned task {task_id}: {changed}"
 
     def create_task(
@@ -346,6 +397,22 @@ class BoardClient:
         path = col_dir / f"{task_id}.yaml"
         save_yaml(path, task)
         logger.debug(f"Created task {task_id} at {path}")
+        
+        # Create assignment events for assigned agents (except creator)
+        for assignee in assignees:
+            if assignee != self.agent_id:  # Don't notify self
+                try:
+                    from crewkan.board_events import create_assignment_event
+                    create_assignment_event(
+                        board_root=self.root,
+                        task_id=task_id,
+                        assigned_to=assignee,
+                        assigned_by=self.agent_id,
+                    )
+                    logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                except Exception as e:
+                    logger.warning(f"Failed to create assignment event: {e}")
+        
         return task_id
 
     # ------------------------------------------------------------------

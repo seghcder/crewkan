@@ -22,7 +22,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
 
-from crewkan.board_langchain_tools import make_board_tools
+from crewkan.board_langchain_tools import make_board_tools, make_event_tools
 from crewkan.board_core import BoardClient
 from crewkan.board_init import init_board
 
@@ -90,6 +90,27 @@ def create_worker_node(board_root: str, worker_id: str):
         """Worker agent: Processes assigned tasks."""
         messages = state["messages"]
         
+        # Check for assignment notifications first using event tools
+        event_tools = make_event_tools(board_root, worker_id)
+        list_events_tool = next((t for t in event_tools if t.name == "list_events"), None)
+        
+        assignment_notifications = []
+        if list_events_tool:
+            events_json = list_events_tool.invoke({"event_type": "task_assigned", "limit": 5})
+            import json
+            assignment_events = json.loads(events_json)
+            
+            for event in assignment_events:
+                data = event.get("data", {})
+                task_id_assigned = data.get("task_id", "")
+                task_title = data.get("task_title", "")
+                if task_id_assigned:
+                    assignment_notifications.append(f"New assignment: Task {task_id_assigned} ({task_title})")
+                    # Mark as read
+                    mark_read_tool = next((t for t in event_tools if t.name == "mark_event_read"), None)
+                    if mark_read_tool:
+                        mark_read_tool.invoke({"event_id": event.get("id")})
+        
         # Get tasks assigned to this worker
         client = BoardClient(board_root, worker_id)
         tasks_json = client.list_my_tasks(column="todo", limit=5)
@@ -112,8 +133,12 @@ def create_worker_node(board_root: str, worker_id: str):
         task_context = f"Task {task_id}: {task.get('title', '')} - {task.get('description', '')}"
         
         # Process the task
+        system_msg = f"You are {worker_id}, a worker agent. Process your assigned tasks efficiently."
+        if assignment_notifications:
+            system_msg += "\n\n" + "\n".join(assignment_notifications)
+        
         worker_messages = [
-            {"role": "system", "content": f"You are {worker_id}, a worker agent. Process your assigned tasks efficiently."},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": f"Work on this task: {task_context}. When done, move it to 'done' column."}
         ]
         
@@ -141,29 +166,60 @@ def create_worker_node(board_root: str, worker_id: str):
 
 
 def create_ceo_notification_node(board_root: str):
-    """CEO node that checks for completion notifications."""
+    """CEO node that checks for completion notifications using event tools."""
     
     async def check_notifications(state: AgentState):
-        """Check for task completion notifications."""
-        from crewkan.board_events import list_pending_events
+        """Check for task completion notifications using event tools."""
+        from crewkan.board_langchain_tools import make_event_tools
+        from langgraph.prebuilt import ToolNode
         
-        events = list_pending_events(board_root, "ceo", event_type="task_completed")
+        # Get event tools
+        event_tools = make_event_tools(board_root, "ceo")
+        tool_node = ToolNode(event_tools)
         
-        if events:
-            notifications = []
-            for event in events:
-                data = event.get("data", {})
-                task_id = data.get("task_id", "unknown")
-                completed_by = data.get("completed_by", "unknown")
-                task_title = data.get("task_title", "")
-                notifications.append(f"Task {task_id} ({task_title}) completed by {completed_by}")
+        # Use list_events tool to get notifications
+        list_events_tool = next((t for t in event_tools if t.name == "list_events"), None)
+        
+        if list_events_tool:
+            # Get all pending events
+            events_json = list_events_tool.invoke({"event_type": None, "limit": 20})
+            import json
+            events = json.loads(events_json)
             
-            return {
-                "messages": state["messages"] + [{
-                    "role": "assistant",
-                    "content": f"Task completion notifications:\n" + "\n".join(f"  - {n}" for n in notifications)
-                }]
-            }
+            if events:
+                notifications = []
+                event_ids_to_clear = []
+                
+                for event in events:
+                    event_type = event.get("type", "unknown")
+                    data = event.get("data", {})
+                    event_id = event.get("id", "unknown")
+                    
+                    if event_type == "task_completed":
+                        task_id = data.get("task_id", "unknown")
+                        completed_by = data.get("completed_by", "unknown")
+                        task_title = data.get("task_title", "")
+                        notifications.append(f"✅ Task {task_id} ({task_title}) completed by {completed_by}")
+                        event_ids_to_clear.append(event_id)
+                    elif event_type == "task_assigned":
+                        task_id = data.get("task_id", "unknown")
+                        task_title = data.get("task_title", "")
+                        assigned_by = data.get("assigned_by", "unknown")
+                        notifications.append(f"📋 Task {task_id} ({task_title}) assigned to you by {assigned_by}")
+                        event_ids_to_clear.append(event_id)
+                
+                # Mark events as read after processing
+                mark_read_tool = next((t for t in event_tools if t.name == "mark_event_read"), None)
+                if mark_read_tool:
+                    for event_id in event_ids_to_clear:
+                        mark_read_tool.invoke({"event_id": event_id})
+                
+                return {
+                    "messages": state["messages"] + [{
+                        "role": "assistant",
+                        "content": f"Notifications ({len(notifications)}):\n" + "\n".join(f"  - {n}" for n in notifications)
+                    }]
+                }
         
         return {"messages": state["messages"]}
     

@@ -247,3 +247,103 @@ def make_board_tools(board_root: str, agent_id: str) -> list[BaseTool]:
 
     return tools
 
+
+# -----------------------------
+# Event tools for notifications
+# -----------------------------
+
+def make_event_tools(board_root: str, agent_id: str) -> list[BaseTool]:
+    """
+    Create tools for checking and managing events/notifications.
+    """
+    from crewkan.board_events import (
+        list_pending_events,
+        mark_event_read,
+        archive_event,
+        get_event,
+    )
+    
+    def list_events_tool(event_type: Optional[str] = None, limit: int = 10) -> str:
+        """List pending events/notifications for this agent."""
+        try:
+            events = list_pending_events(board_root, agent_id, event_type=event_type, limit=limit)
+            return json.dumps(events, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+    
+    def mark_event_read_tool(event_id: str) -> str:
+        """Mark an event as read."""
+        try:
+            success = mark_event_read(board_root, agent_id, event_id)
+            return f"Event {event_id} marked as read" if success else f"Event {event_id} not found"
+        except Exception as e:
+            return f"ERROR: {e}"
+    
+    def get_event_tool(event_id: str) -> str:
+        """Get details of a specific event."""
+        try:
+            event = get_event(board_root, agent_id, event_id)
+            if event:
+                return json.dumps(event, indent=2)
+            return f"Event {event_id} not found"
+        except Exception as e:
+            return f"ERROR: {e}"
+    
+    def clear_all_events_tool() -> str:
+        """Mark all pending events as read."""
+        try:
+            events = list_pending_events(board_root, agent_id, limit=1000)
+            cleared = 0
+            for event in events:
+                if mark_event_read(board_root, agent_id, event["id"]):
+                    cleared += 1
+            return f"Cleared {cleared} events"
+        except Exception as e:
+            return f"ERROR: {e}"
+    
+    class ListEventsInput(BaseModel):
+        event_type: Optional[str] = Field(
+            default=None,
+            description="Optional filter by event type (e.g., 'task_completed', 'task_assigned').",
+        )
+        limit: int = Field(
+            default=10,
+            description="Maximum number of events to return.",
+        )
+    
+    class EventIdInput(BaseModel):
+        event_id: str = Field(..., description="Event ID to operate on.")
+    
+    tools: list[BaseTool] = [
+        StructuredTool.from_function(
+            name="list_events",
+            func=list_events_tool,
+            args_schema=ListEventsInput,
+            description=(
+                "List pending events/notifications for this agent. "
+                "Use this to check for task completions, assignments, etc. "
+                "Returns a JSON list of events."
+            ),
+        ),
+        StructuredTool.from_function(
+            name="mark_event_read",
+            func=mark_event_read_tool,
+            args_schema=EventIdInput,
+            description="Mark an event as read after processing it.",
+        ),
+        StructuredTool.from_function(
+            name="get_event",
+            func=get_event_tool,
+            args_schema=EventIdInput,
+            description="Get details of a specific event by ID.",
+        ),
+        StructuredTool.from_function(
+            name="clear_all_events",
+            func=clear_all_events_tool,
+            args_schema=None,
+            description="Mark all pending events as read. Use this to clear your notification inbox.",
+        ),
+    ]
+    
+    return tools
+

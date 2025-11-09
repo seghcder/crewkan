@@ -1,0 +1,12 @@
+agents: list(include('agent_schema'), min=0)
+
+---
+agent_schema:
+  id: str()
+  name: str()
+  role: str()
+  kind: enum('human', 'ai')
+  status: enum('active', 'inactive', 'suspended', required=False)
+  skills: list(str(), required=False)
+  metadata: map(required=False)
+

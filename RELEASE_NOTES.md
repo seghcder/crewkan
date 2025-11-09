@@ -1,5 +1,46 @@
 # CrewKan Release Notes
 
+## Version 0.2.0
+
+**Release Date**: 2025-11-09
+
+### New Features
+
+#### Error Handling & Reliability
+- **File Locking**: `.lck` file-based semaphores prevent read-update-write race conditions
+- **Schema Validation**: YAML schema validation using `yamale` (board, agents, tasks)
+- **Versioning**: Automatic version field addition to all YAML files (enables future migrations)
+- **Retry Logic**: Automatic retry on transient file system errors (3 retries, configurable)
+- **Corruption Detection**: Enhanced error messages with recovery suggestions
+- **Backup Creation**: Automatic `.bak` file creation before overwrites
+- **Atomic Writes**: Temporary file → atomic rename prevents partial writes
+
+#### Event System Enhancements
+- **Event Tools**: LangChain tools for event management (list_events, mark_event_read, get_event, clear_all_events)
+- **Assignment Notifications**: Automatic event creation when tasks are assigned
+- **Enhanced LangGraph Example**: Updated CEO delegation example to use event tools
+
+### Improvements
+
+- **Error Messages**: Context-rich error messages with file paths and recovery suggestions
+- **BoardClient Error Handling**: Wrapped file operations with better error context
+- **Test Coverage**: Added comprehensive corruption and error handling tests
+- **Documentation**: New `ERROR_HANDLING.md` guide
+
+### Technical Details
+
+- **New Dependencies**: `yamale>=4.0.0` for schema validation
+- **New Modules**: `crewkan/file_locking.py`, `crewkan/schemas/`
+- **Backward Compatible**: All new features are optional and can be disabled
+
+### Migration Notes
+
+- No migration needed - version field automatically added to existing files
+- Schema validation is optional (gracefully degrades if yamale not installed)
+- File locking is enabled by default but can be disabled per-operation
+
+---
+
 ## Version 0.1.0
 
 **Release Date**: 2025-11-09

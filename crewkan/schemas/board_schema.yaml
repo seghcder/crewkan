@@ -1,0 +1,12 @@
+board_name: str()
+board_id: str()
+version: int(min=1)
+columns: list(include('column_schema'), min=1)
+settings: map(required=False)
+
+---
+column_schema:
+  id: str()
+  name: str()
+  wip_limit: int(required=False)
+

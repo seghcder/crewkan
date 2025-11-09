@@ -277,3 +277,83 @@ def get_event(
     
     return load_yaml(event_file)
 
+
+def clear_all_events(
+    board_root: str | Path,
+    agent_id: str,
+) -> int:
+    """
+    Mark all pending events as read.
+    
+    Args:
+        board_root: Root directory of the board
+        agent_id: Agent ID that owns the events
+    
+    Returns:
+        Number of events cleared
+    """
+    events = list_pending_events(board_root, agent_id, limit=1000)
+    cleared = 0
+    for event in events:
+        if mark_event_read(board_root, agent_id, event["id"]):
+            cleared += 1
+    logger.info(f"Cleared {cleared} events for agent {agent_id}")
+    return cleared
+
+
+def create_assignment_event(
+    board_root: str | Path,
+    task_id: str,
+    assigned_to: str,
+    assigned_by: str,
+    assignment_notes: Optional[str] = None,
+) -> str:
+    """
+    Create a task assignment event.
+    
+    This is called when a task is assigned to notify the assignee.
+    
+    Args:
+        board_root: Root directory of the board
+        task_id: ID of the assigned task
+        assigned_to: Agent ID that was assigned the task
+        assigned_by: Agent ID that made the assignment
+        assignment_notes: Optional notes about the assignment
+    
+    Returns:
+        Event ID
+    """
+    # Load task to get details
+    from crewkan.board_core import BoardClient, BoardError
+    
+    try:
+        client = BoardClient(board_root, assigned_by)
+        path, task = client.find_task(task_id)
+        
+        data = {
+            "task_id": task_id,
+            "task_title": task.get("title", ""),
+            "task_description": task.get("description", ""),
+            "assigned_to": assigned_to,
+            "assigned_by": assigned_by,
+            "assignment_notes": assignment_notes,
+            "assigned_at": now_iso(),
+        }
+    except BoardError:
+        # Task not found, create minimal event
+        data = {
+            "task_id": task_id,
+            "assigned_to": assigned_to,
+            "assigned_by": assigned_by,
+            "assignment_notes": assignment_notes,
+            "assigned_at": now_iso(),
+        }
+    
+    return create_event(
+        board_root=board_root,
+        event_type="task_assigned",
+        notify_agent=assigned_to,
+        created_by=assigned_by,
+        data=data,
+    )
+

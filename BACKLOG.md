@@ -21,19 +21,22 @@ Items to make CrewKan production-ready.
 - [ ] Create API documentation (Sphinx or similar)
 
 ### Error Handling
-- [ ] Improve error messages with context
-- [ ] Add validation for YAML schema
-- [ ] Handle corrupted YAML files gracefully
-- [ ] Add retry logic for file operations
+- [x] Improve error messages with context
+- [x] Add validation for YAML schema (yamale)
+- [x] Handle corrupted YAML files gracefully
+- [x] Add retry logic for file operations
+- [x] Add file locking to prevent race conditions (.lck files)
+- [x] Add versioning to YAML files
+- [x] Add backup creation on file writes
 - [ ] Add transaction-like behavior for multi-file operations
+
+## Medium Priority
 
 ### Performance
 - [ ] Add caching for board/agent data
 - [ ] Optimize task search (indexing or better algorithms)
 - [ ] Add pagination for large task lists
 - [ ] Profile and optimize hot paths
-
-## Medium Priority
 
 ### Features
 - [ ] WIP limit enforcement (warn/block when limit exceeded)
@@ -46,6 +49,8 @@ Items to make CrewKan production-ready.
 - [ ] Export/import functionality (JSON, CSV)
 - [ ] Task attachments support
 - [ ] Task due date reminders
+- [ ] Rename "tasks" to "issues" with issue types (epic, user story, task, bug, etc.)
+- [ ] External system mirroring (1:1 sync with Jira, GitHub Issues, etc.)
 
 ### Multi-Board
 - [ ] Board summarization tool (status across sub-boards)
@@ -69,6 +74,8 @@ Items to make CrewKan production-ready.
 - [ ] Add board summarization tool
 - [x] Example agent implementations (LangGraph CEO delegation example in examples/)
 - [x] Agent orchestration patterns (CEO delegating to workers, event-based notifications)
+- [x] Event notification tools (list_events, mark_event_read, clear_all_events)
+- [x] Task assignment event notifications (automatic when tasks assigned)
 
 ## Low Priority
 
@@ -80,11 +87,13 @@ Items to make CrewKan production-ready.
 - [ ] Backend comparison/benchmarking
 
 ### Security & Access Control
+- [ ] Full hosting solution with user authentication/authorization
 - [ ] Authentication/authorization layer
 - [ ] Role-based access control (RBAC)
 - [ ] Agent permission system
 - [ ] Audit logging
 - [ ] Encryption at rest for sensitive data
+- [ ] Email notifications for real users (especially task assignments)
 
 ### Observability
 - [x] Structured logging (logging_config.py with file and console handlers)

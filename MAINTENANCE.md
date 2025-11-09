@@ -7,7 +7,7 @@ CrewKan uses [Semantic Versioning](https://semver.org/):
 - **MINOR**: New functionality in a backwards-compatible manner
 - **PATCH**: Backwards-compatible bug fixes
 
-Current version: **0.1.0**
+Current version: **0.2.0**
 
 ### Version Tags
 
