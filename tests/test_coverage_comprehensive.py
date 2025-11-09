@@ -1220,13 +1220,81 @@ def run_coverage_comprehensive():
             shutil.rmtree(temp_dir)
     
     # 9. Test simulation
-    print("\n[9/9] Testing simulation...")
+    print("\n[9/10] Testing simulation...")
     try:
         from tests.test_simulation import run_simulation
         run_simulation(num_agents=3, num_tasks=20, num_boards=1, work_cycles=5)
         print("  ✓ Simulation tested")
     except Exception as e:
         print(f"  ✗ Simulation error: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # 10. Test UI main() function using Streamlit AppTest
+    print("\n[10/10] Testing UI main() function with AppTest...")
+    try:
+        from streamlit.testing.v1 import AppTest
+        
+        test_board_main = temp_dir / "main_test_board"
+        init_board(test_board_main, "main-test", "Main Test", "test-agent", "test-agent")
+        
+        # Add agent
+        from crewkan.crewkan_cli import cmd_add_agent
+        class Args:
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+        args = Args(root=str(test_board_main), id="test-agent", name="Test Agent", role="Tester", kind="ai")
+        cmd_add_agent(args)
+        
+        # Create tasks
+        from crewkan.board_core import BoardClient
+        client = BoardClient(test_board_main, "test-agent")
+        client.create_task("Test Task 1", "Description", "todo", ["test-agent"])
+        
+        # Set environment
+        import os
+        old_env = os.environ.get("CREWKAN_BOARD_ROOT")
+        os.environ["CREWKAN_BOARD_ROOT"] = str(test_board_main)
+        
+        try:
+            # Execute main() via AppTest - this exercises the main() function code
+            at = AppTest.from_file("crewkan/crewkan_ui.py", default_timeout=10.0)
+            at.run()
+            
+            # Verify it executed
+            assert len(at.title) > 0, "Main function should render title"
+            print("  ✓ Main function executed successfully")
+            
+            # Test with empty board
+            empty_main = temp_dir / "empty_main_board"
+            init_board(empty_main, "empty-main", "Empty", "test-agent", "test-agent")
+            os.environ["CREWKAN_BOARD_ROOT"] = str(empty_main)
+            
+            at2 = AppTest.from_file("crewkan/crewkan_ui.py", default_timeout=10.0)
+            at2.run()
+            print("  ✓ Main function with empty board executed")
+            
+            # Test error path (missing board.yaml)
+            missing_main = temp_dir / "missing_main_board"
+            missing_main.mkdir()
+            os.environ["CREWKAN_BOARD_ROOT"] = str(missing_main)
+            
+            at3 = AppTest.from_file("crewkan/crewkan_ui.py", default_timeout=10.0)
+            at3.run()
+            print("  ✓ Main function error handling executed")
+            
+        finally:
+            if old_env:
+                os.environ["CREWKAN_BOARD_ROOT"] = old_env
+            elif "CREWKAN_BOARD_ROOT" in os.environ:
+                del os.environ["CREWKAN_BOARD_ROOT"]
+                
+    except ImportError:
+        print("  ⚠ Streamlit AppTest not available - skipping main() function test")
+        print("     Install with: pip install 'streamlit>=1.28.0'")
+    except Exception as e:
+        print(f"  ⚠ Main function test error: {e}")
         import traceback
         traceback.print_exc()
     

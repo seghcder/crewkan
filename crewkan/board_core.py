@@ -297,6 +297,7 @@ class BoardClient:
         priority: str | None = None,
         tags: list[str] | None = None,
         due_date: str | None = None,
+        requested_by: str | None = None,
     ) -> str:
         """
         Create a new task. Returns the new task id.
@@ -313,6 +314,9 @@ class BoardClient:
         task_id: str = generate_task_id(prefix)
         created_at = now_iso()
 
+        # Determine requested_by (use parameter if provided, otherwise use creating agent)
+        requested_by_agent = requested_by if requested_by is not None else self.agent_id
+        
         task = {
             "id": task_id,
             "title": title,
@@ -326,7 +330,7 @@ class BoardClient:
             "created_at": created_at,
             "updated_at": created_at,
             "due_date": due_date,
-            "requested_by": requested_by or self.agent_id,  # Track who requested this task
+            "requested_by": requested_by_agent,  # Track who requested this task
             "history": [
                 {
                     "at": created_at,
