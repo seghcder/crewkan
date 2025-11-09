@@ -3,11 +3,12 @@
 LangGraph example: CEO delegating tasks to multiple agents working in parallel.
 
 This demonstrates:
-1. CEO agent creating 30 tasks (10 each for COO, CFO, CTO)
+1. CEO agent generating tasks dynamically using GenAI
 2. Multiple worker agents processing tasks continuously in parallel
 3. Long-running workflow where agents process tasks: backlog→todo→doing→done
-4. Priority-based task selection
-5. CEO monitors completion and exits when all tasks are done
+4. Priority-based task selection (AI-generated priorities)
+5. Work resumption support - can restart and continue from where it left off
+6. All agents run independently in parallel
 """
 
 import os
@@ -23,12 +24,18 @@ import time
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Load environment variables from .env if it exists
+from dotenv import load_dotenv
+load_dotenv()
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from operator import add
+from langchain_openai import AzureChatOpenAI
 
 from crewkan.board_core import BoardClient
 from crewkan.board_init import init_board
+from crewkan.board_langchain_tools import make_board_tools
 
 
 # ============================================================================
@@ -41,9 +48,8 @@ class AgentState(TypedDict):
     agent_id: str  # Current agent processing
     task_id: str | None  # Current task being worked on
     board_root: str  # Board directory
-    tasks_created: bool  # Whether CEO has created all tasks
-    last_fanout_time: float  # Timestamp of last fanout routing to prevent rapid re-routing
-    total_tasks: int  # Total number of tasks to create
+    last_task_gen_time: float  # Timestamp of last task generation
+    should_exit: bool  # Flag to signal all work is done
 
 
 # ============================================================================
@@ -66,6 +72,25 @@ def count_tasks_by_status(board_root: str) -> dict[str, int]:
     return counts
 
 
+def get_recent_task_history(board_root: str, limit: int = 10) -> str:
+    """Get recent task history for context in task generation."""
+    client = BoardClient(board_root, "ceo")
+    history = []
+    
+    # Get recent completed tasks
+    for path, task in client.iter_tasks():
+        if task.get("column") == "done":
+            history.append({
+                "title": task.get("title", ""),
+                "assignee": task.get("assignees", [""])[0] if task.get("assignees") else "",
+                "priority": task.get("priority", "medium"),
+            })
+        if len(history) >= limit:
+            break
+    
+    return json.dumps(history, indent=2)
+
+
 def all_tasks_done(board_root: str, expected_total: int = 30) -> bool:
     """Check if all tasks are in the 'done' column."""
     counts = count_tasks_by_status(board_root)
@@ -77,113 +102,124 @@ def all_tasks_done(board_root: str, expected_total: int = 30) -> bool:
 # Agent Nodes
 # ============================================================================
 
-def create_ceo_node(board_root: str, tasks_per_worker: int = 10):
-    """Create CEO agent node that creates tasks and monitors completion."""
+def create_ceo_node(board_root: str):
+    """Create CEO agent node that generates tasks dynamically using GenAI."""
+    
+    # Check for Azure OpenAI API key
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+    
+    if not api_key or not endpoint or not deployment:
+        raise ValueError(
+            "Azure OpenAI credentials not set. Required: "
+            "AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME"
+        )
+    
+    llm = AzureChatOpenAI(
+        azure_endpoint=endpoint,
+        azure_deployment=deployment,
+        api_key=api_key,
+        api_version=api_version,
+        temperature=0.7,
+    )
+    client = BoardClient(board_root, "ceo")
+    agents = ["coo", "cfo", "cto"]
+    max_backlog_per_agent = 5
     
     async def ceo_agent(state: AgentState):
-        """CEO agent: Creates tasks (tasks_per_worker each for COO, CFO, CTO) and monitors."""
-        tasks_created = state.get("tasks_created", False)
-        total_tasks = state.get("total_tasks", tasks_per_worker * 3)
+        """CEO agent: Generates tasks dynamically using GenAI and monitors completion."""
+        last_gen_time = state.get("last_task_gen_time", 0.0)
+        current_time = time.time()
         
-        # If tasks haven't been created yet, create them
-        if not tasks_created:
-            client = BoardClient(board_root, "ceo")
+        # Check if we should generate a new task (every ~1 second)
+        if current_time - last_gen_time < 1.0:
+            # Too soon, just monitor
+            return {}
+        
+        # Check backlog size - only generate if backlog < agents X max_backlog_per_agent
+        counts = count_tasks_by_status(board_root)
+        backlog_count = counts.get("backlog", 0)
+        max_backlog = len(agents) * max_backlog_per_agent
+        
+        if backlog_count >= max_backlog:
+            # Backlog is full, don't generate more
+            return {"last_task_gen_time": current_time}
+        
+        # Get recent task history for context
+        recent_history = get_recent_task_history(board_root, limit=5)
+        
+        # Generate a new task using GenAI
+        prompt = f"""You are a CEO managing a team of executives: COO (Operations), CFO (Finance), and CTO (Technology).
+
+Recent completed tasks:
+{recent_history}
+
+Current backlog size: {backlog_count}/{max_backlog}
+
+Generate ONE new task for one of the executives. Consider:
+1. What work would be most valuable based on recent completions?
+2. Which executive (coo, cfo, or cto) should handle this?
+3. What priority (high, medium, low) is appropriate?
+
+Respond in JSON format:
+{{
+    "title": "Task title",
+    "description": "Brief task description",
+    "assignee": "coo|cfo|cto",
+    "priority": "high|medium|low"
+}}"""
+
+        try:
+            response = llm.invoke(prompt)
+            content = response.content.strip()
             
-            # Check if tasks already exist (work resumption - don't recreate)
-            existing_counts = count_tasks_by_status(board_root)
-            existing_total = sum(existing_counts.values())
-            if existing_total >= total_tasks:
-                # Tasks already exist, just mark as created (work resumption)
-                return {"tasks_created": True}
+            # Parse JSON from response (may have markdown code blocks)
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
             
-            # Create tasks_per_worker tasks for each agent (COO, CFO, CTO)
-            agents = ["coo", "cfo", "cto"]
-            task_titles = {
-                "coo": [
-                    "Optimize operations workflow",
-                    "Review supply chain efficiency",
-                    "Implement process improvements",
-                    "Analyze operational costs",
-                    "Streamline production pipeline",
-                    "Evaluate vendor relationships",
-                    "Improve quality control",
-                    "Enhance customer service",
-                    "Optimize resource allocation",
-                    "Review safety protocols",
-                    "Develop operational metrics",
-                    "Create process documentation",
-                    "Train operations team",
-                    "Review compliance standards",
-                    "Optimize inventory management",
-                ],
-                "cfo": [
-                    "Prepare quarterly financial report",
-                    "Analyze budget variance",
-                    "Review investment portfolio",
-                    "Optimize cash flow",
-                    "Audit expense reports",
-                    "Evaluate financial risks",
-                    "Prepare tax documentation",
-                    "Review pricing strategy",
-                    "Analyze profitability",
-                    "Update financial forecasts",
-                    "Review accounts receivable",
-                    "Analyze cost structure",
-                    "Prepare board presentation",
-                    "Review financial controls",
-                    "Optimize capital allocation",
-                ],
-                "cto": [
-                    "Design new system architecture",
-                    "Review code quality standards",
-                    "Implement security improvements",
-                    "Optimize database performance",
-                    "Upgrade infrastructure",
-                    "Review technical debt",
-                    "Implement CI/CD pipeline",
-                    "Evaluate new technologies",
-                    "Improve system monitoring",
-                    "Plan technical roadmap",
-                    "Review API design",
-                    "Optimize application performance",
-                    "Implement backup strategy",
-                    "Review security policies",
-                    "Plan capacity scaling",
-                ],
-            }
+            task_data = json.loads(content)
             
-            created_tasks = []
-            priorities = ["high", "medium", "low"]
+            # Validate and create task
+            assignee = task_data.get("assignee", random.choice(agents))
+            if assignee not in agents:
+                assignee = random.choice(agents)
             
-            for agent_id in agents:
-                titles = task_titles[agent_id]
-                # Create tasks_per_worker tasks with random priorities
-                for i in range(tasks_per_worker):
-                    title = titles[i % len(titles)]  # Cycle through titles if needed
-                    priority = random.choice(priorities)  # Random priority
-                    task_id = client.create_task(
-                        title=f"{title} ({i+1})",
-                        description=f"Task {i+1} for {agent_id.upper()}",
-                        column="backlog",
-                        assignees=[agent_id],
-                        priority=priority,
-                        requested_by="ceo",
-                    )
-                    created_tasks.append(task_id)
+            priority = task_data.get("priority", "medium")
+            if priority not in ["high", "medium", "low"]:
+                priority = "medium"
+            
+            task_id = client.create_task(
+                title=task_data.get("title", "Generated task"),
+                description=task_data.get("description", ""),
+                column="backlog",
+                assignees=[assignee],
+                priority=priority,
+                requested_by="ceo",
+            )
             
             return {
-                "tasks_created": True,
+                "last_task_gen_time": current_time,
+                "messages": [{
+                    "role": "assistant",
+                    "content": f"CEO: Generated task {task_id} for {assignee.upper()} - {task_data.get('title', '')} (priority: {priority})"
+                }]
             }
-        
-        # After tasks are created, monitor completion (idempotent - just check status)
-        # Don't update state to avoid conflicts when called multiple times
-        return {}
+        except Exception as e:
+            # If generation fails, just update timestamp and continue
+            return {"last_task_gen_time": current_time}
     
     return ceo_agent
 
 
 def create_worker_node(board_root: str, worker_id: str):
-    """Create a worker agent node that continuously processes tasks."""
+    """Create a worker agent node that continuously processes tasks.
+    
+    All workers use the same template - they process tasks independently.
+    """
     
     client = BoardClient(board_root, worker_id)
     
@@ -256,96 +292,69 @@ def create_worker_node(board_root: str, worker_id: str):
     return worker_agent
 
 
-def create_fanout_node():
-    """Create a fan-out node that routes to all workers."""
-    async def fanout(state: AgentState):
-        """Pass through node that allows routing to multiple workers."""
-        # Update last_fanout_time to prevent rapid re-routing
-        return {"last_fanout_time": time.time()}
-    
-    return fanout
 
 
-def create_collector_node():
-    """Create a collector node that aggregates worker results before routing to CEO."""
-    async def collector(state: AgentState):
-        """Collector node that passes through state."""
-        # This node just passes through - it's used to ensure all workers complete
-        # before routing to CEO
-        return state
-    
-    return collector
+def should_continue_worker(state: AgentState) -> str:
+    """Worker nodes continue processing unless explicitly told to stop."""
+    should_exit = state.get("should_exit", False)
+    if should_exit:
+        return "end"
+    return "continue"  # Continue processing
 
-
-def should_continue(state: AgentState) -> str:
-    """Conditional routing: check if all tasks are done."""
-    board_root = state["board_root"]
-    tasks_created = state.get("tasks_created", False)
-    total_tasks = state.get("total_tasks", 30)
-    last_fanout_time = state.get("last_fanout_time", 0.0)
-    current_time = time.time()
-    
-    if not tasks_created:
-        return "fanout"  # Go to fanout which routes to all workers
-    
-    if all_tasks_done(board_root, expected_total=total_tasks):
-        return "end"  # All done, exit
-    
-    # Only route to fanout if enough time has passed since last routing
-    # This prevents exponential growth when CEO is called multiple times concurrently
-    # 0.1 seconds should be enough to let one call through while blocking rapid re-routing
-    if current_time - last_fanout_time > 0.1:
-        return "fanout"
-    else:
-        return "end"  # End this execution path to prevent recursion
+def should_continue_ceo(state: AgentState) -> str:
+    """CEO node continues generating tasks and monitoring."""
+    should_exit = state.get("should_exit", False)
+    if should_exit:
+        return "end"
+    return "continue"  # Continue generating tasks
 
 
 # ============================================================================
 # Graph Construction
 # ============================================================================
 
-def create_delegation_graph(board_root: str, tasks_per_worker: int = 10):
-    """Create the LangGraph for CEO delegation with continuous task processing."""
+def create_coordinator_node():
+    """Create a coordinator node that routes to all agents in parallel."""
+    async def coordinator(state: AgentState):
+        """Coordinator that passes through state - just routes to all agents."""
+        return state
+    return coordinator
+
+def create_delegation_graph(board_root: str):
+    """Create the LangGraph with all agents running independently in parallel.
+    
+    All agents (CEO + workers) run continuously and independently.
+    CEO generates tasks, workers process them.
+    """
     
     graph = StateGraph(AgentState)
     
-    # Add nodes
-    ceo_node = create_ceo_node(board_root, tasks_per_worker)
-    fanout_node = create_fanout_node()
+    # Add nodes - all agents run independently
+    coordinator_node = create_coordinator_node()
+    ceo_node = create_ceo_node(board_root)
     coo_node = create_worker_node(board_root, "coo")
     cfo_node = create_worker_node(board_root, "cfo")
     cto_node = create_worker_node(board_root, "cto")
     
+    graph.add_node("coordinator", coordinator_node)
     graph.add_node("ceo", ceo_node)
-    graph.add_node("fanout", fanout_node)
     graph.add_node("coo", coo_node)
     graph.add_node("cfo", cfo_node)
     graph.add_node("cto", cto_node)
     
-    # Set entry point
-    graph.set_entry_point("ceo")
+    # Start with coordinator that routes to all agents in parallel
+    graph.set_entry_point("coordinator")
+    graph.add_edge("coordinator", "ceo")
+    graph.add_edge("coordinator", "coo")
+    graph.add_edge("coordinator", "cfo")
+    graph.add_edge("coordinator", "cto")
     
-    # CEO routes conditionally: after creating tasks, route to fanout
-    # After monitoring, route back to fanout or exit
-    graph.add_conditional_edges(
-        "ceo",
-        should_continue,
-        {
-            "fanout": "fanout",
-            "end": END
-        }
-    )
-    
-    # Fanout routes to all workers in parallel
-    graph.add_edge("fanout", "coo")
-    graph.add_edge("fanout", "cfo")
-    graph.add_edge("fanout", "cto")
-    
-    # Workers process tasks and route directly to CEO
-    # CEO is idempotent, so multiple calls are safe
-    graph.add_edge("coo", "ceo")
-    graph.add_edge("cfo", "ceo")
-    graph.add_edge("cto", "ceo")
+    # Each agent loops back to itself to continue processing
+    # They all run independently in parallel
+    graph.add_conditional_edges("ceo", should_continue_ceo, {"continue": "ceo", "end": END})
+    graph.add_conditional_edges("coo", should_continue_worker, {"continue": "coo", "end": END})
+    graph.add_conditional_edges("cfo", should_continue_worker, {"continue": "cfo", "end": END})
+    graph.add_conditional_edges("cto", should_continue_worker, {"continue": "cto", "end": END})
     
     return graph.compile(checkpointer=MemorySaver(), interrupt_before=[], interrupt_after=[])
 
@@ -356,18 +365,6 @@ def create_delegation_graph(board_root: str, tasks_per_worker: int = 10):
 
 async def main():
     """Run the CEO delegation example with continuous task processing."""
-    
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="CEO delegation workflow with continuous task processing")
-    parser.add_argument(
-        "--tasks-per-worker",
-        type=int,
-        default=10,
-        help="Number of tasks to create per worker (default: 10)"
-    )
-    args = parser.parse_args()
-    tasks_per_worker = args.tasks_per_worker
-    total_tasks = tasks_per_worker * 3
     
     # Setup board - don't reset, support work resumption
     board_root = Path("examples/ceo_delegation_board")
@@ -411,32 +408,32 @@ async def main():
                 args = Args(root=str(board_root), id=agent_id, name=name, role=role, kind="ai")
                 cmd_add_agent(args)
     
-    # Create and run graph
-    graph = create_delegation_graph(str(board_root), tasks_per_worker)
+    # Create and run graph - all agents run independently
+    graph = create_delegation_graph(str(board_root))
     
     initial_state = {
-        "messages": [{"role": "user", "content": f"Create {total_tasks} tasks ({tasks_per_worker} each for COO, CFO, CTO) and monitor their completion"}],
-        "agent_id": "ceo",
+        "messages": [{"role": "user", "content": "Start continuous task processing workflow"}],
+        "agent_id": "system",
         "task_id": None,
         "board_root": str(board_root),
-        "tasks_created": False,
-        "last_fanout_time": 0.0,
-        "total_tasks": total_tasks,
+        "last_task_gen_time": 0.0,
+        "should_exit": False,
     }
     
     config = {
         "configurable": {
             "thread_id": "1",
         },
-        "recursion_limit": 1000
+        "recursion_limit": 10000  # Higher limit for long-running workflow
     }
     
     print("=" * 60)
     print("Starting CEO delegation workflow...")
-    print(f"CEO will create {total_tasks} tasks ({tasks_per_worker} each for COO, CFO, CTO)")
+    print("CEO will generate tasks dynamically using GenAI")
     print("Agents will process tasks: backlog → todo → doing → done")
     print("Each task takes 2-5 seconds to complete (random)")
-    print("Task priorities are assigned randomly")
+    print("CEO generates new tasks every second if backlog < 15")
+    print("All agents run independently in parallel")
     print("=" * 60)
     
     iteration = 0
