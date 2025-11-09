@@ -183,6 +183,14 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
         page.screenshot(path=str(screenshot_path), full_page=True)
         print(f"📸 Screenshot saved: {screenshot_path}")
         
+        # Count tasks before submission
+        from crewkan.board_core import BoardClient
+        import json
+        client = BoardClient(test_board, "nuni")
+        tasks_before = json.loads(client.list_my_tasks())
+        task_count_before = len(tasks_before)
+        print(f"Tasks before submission: {task_count_before}")
+        
         # Find and click submit button
         submit_selectors = [
             'button:has-text("Create Task")',
@@ -202,8 +210,24 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
                 page.screenshot(path=str(screenshot_path), full_page=True)
                 print(f"📸 Screenshot saved: {screenshot_path}")
                 
+                # Click submit and wait for processing
+                print("Clicking submit button...")
                 submit_button.click()
-                page.wait_for_timeout(3000)  # Wait for form submission and rerun
+                
+                # Wait for form submission - Streamlit needs time to process
+                print("Waiting for form submission processing...")
+                page.wait_for_timeout(2000)  # Initial wait
+                
+                # Wait for page to update (check for success message or task appearing)
+                max_wait = 10
+                for i in range(max_wait):
+                    page_text = page.inner_text("body")
+                    if "Created task" in page_text or "Test Task from Playwright" in page_text:
+                        print(f"Form submission detected after {i+1} checks")
+                        break
+                    page.wait_for_timeout(500)
+                else:
+                    print("Warning: Form submission may not have completed")
                 
                 # Screenshot after clicking
                 screenshot_path = screenshot_dir / "06_after_clicking_submit.png"
@@ -211,15 +235,23 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
                 print(f"📸 Screenshot saved: {screenshot_path}")
                 
                 # Verify task was created in filesystem
-                from crewkan.board_core import BoardClient
-                client = BoardClient(test_board, "nuni")
-                tasks_json = client.list_my_tasks()
-                import json
-                tasks = json.loads(tasks_json)
+                tasks_after = json.loads(client.list_my_tasks())
+                task_count_after = len(tasks_after)
+                print(f"Tasks after submission: {task_count_after}")
+                
+                # Verify task count increased
+                assert task_count_after > task_count_before, f"Task count should increase. Before: {task_count_before}, After: {task_count_after}"
                 
                 # Check if our task exists
-                task_found = any("Test Task from Playwright" in t.get("title", "") for t in tasks)
-                assert task_found, "Task should be created in filesystem"
+                task_found = any("Test Task from Playwright" in t.get("title", "") for t in tasks_after)
+                assert task_found, "Task should be created in filesystem after form submission"
+                
+                # Check for success feedback in UI
+                page_text = page.inner_text("body")
+                success_indicators = ["Created task", "✅", "Test Task from Playwright"]
+                has_success = any(indicator in page_text for indicator in success_indicators)
+                print(f"Success feedback in UI: {has_success}")
+                
                 print("✓ Test: Create task via UI - PASSED")
                 return
     
