@@ -467,6 +467,18 @@ def run_coverage_comprehensive():
         args = MockArgs(root=str(test_board), column="doing", agent="test-agent")
         cmd_list_tasks(args)
         
+        # Test cmd_list_tasks with no matching tasks
+        args = MockArgs(root=str(test_board), column="blocked", agent=None)
+        cmd_list_tasks(args)  # Should print "No matching tasks."
+        
+        # Test cmd_list_tasks with task that's not a dict
+        non_dict_board = temp_dir / "non_dict_board"
+        init_board(non_dict_board, "non_dict", "Non Dict", "test-agent", "test-agent")
+        non_dict_path = non_dict_board / "tasks" / "todo" / "NOT-DICT.yaml"
+        non_dict_path.write_text("not a dict: [invalid")
+        args = MockArgs(root=str(non_dict_board), column=None, agent=None)
+        cmd_list_tasks(args)  # Should skip non-dict files
+        
         # Test cmd_validate with various board states
         # Create a board with some issues
         invalid_task_board = temp_dir / "invalid_task_board"
@@ -536,6 +548,10 @@ def run_coverage_comprehensive():
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
             cmd_start_task(args)
             
+            # Test cmd_start_task with task already in target column (should not move)
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
+            cmd_start_task(args)  # Task already in backlog, should just create link
+            
             # Test cmd_stop_task with column specified
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
             cmd_stop_task(args)
@@ -547,9 +563,19 @@ def run_coverage_comprehensive():
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column=None)
             cmd_stop_task(args)
             
-            # Test cmd_stop_task with no workspace link found
+            # Test cmd_stop_task with no workspace link found (with column)
             args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent", column="todo")
             cmd_stop_task(args)  # Should not error, just print message
+            
+            # Test cmd_stop_task with no workspace link found (without column)
+            args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent", column=None)
+            cmd_stop_task(args)  # Should search all and find nothing
+            
+            # Test cmd_stop_task with no workspace directory
+            no_ws_board = temp_dir / "no_ws_board"
+            init_board(no_ws_board, "no_ws", "No WS", "test-agent", "test-agent")
+            args = MockArgs(root=str(no_ws_board), task_id="T-123", agent="test-agent", column=None)
+            cmd_stop_task(args)  # Should handle missing workspace gracefully
         
         # Test cmd_start_task with invalid agent
         if task_files:

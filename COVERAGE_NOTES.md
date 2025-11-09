@@ -1,6 +1,6 @@
 # Coverage Improvement Notes
 
-**Current Coverage: 50%** ✅ (Target: 50% ✅ → Next: 70% → Final: 90%+)
+**Current Coverage: 54%** ✅ (Target: 50% ✅ → Next: 70% → Final: 90%+)
 
 ## Coverage Status
 
@@ -8,9 +8,9 @@
 - `board_init.py`: **83%** ✅ (Good)
 - `board_langchain_tools.py`: **91%** ✅ (Excellent)
 - `board_registry.py`: **96%** ✅ (Excellent)
-- `crewkan_cli.py`: **34%** ⚠️ (Needs more direct function calls - main target for 70%)
+- `crewkan_cli.py`: **30%** ⚠️ (Needs more direct function calls - main target for 70%)
 - `crewkan_setup.py`: **98%** ✅ (Excellent)
-- `crewkan_ui.py`: **23%** ⚠️ (Needs more direct function calls - main target for 70%)
+- `crewkan_ui.py`: **36%** ⚠️ (Improved from 23%, still needs more - main target for 70%)
 - `logging_config.py`: **100%** ✅ (Perfect)
 - `utils.py`: **100%** ✅ (Perfect)
 
@@ -69,8 +69,8 @@ open htmlcov/index.html
 
 ## Target Progress
 
-- ✅ Current: **50%** ✅ (ACHIEVED! Up from 39%)
-- ⏳ Next milestone: **70%** (in progress)
+- ✅ Current: **54%** ✅ (Up from 50%, +4%)
+- ⏳ Next milestone: **70%** (in progress - need +16%)
 - 🎯 Final target: **90%+**
 
 ## Recent Improvements
