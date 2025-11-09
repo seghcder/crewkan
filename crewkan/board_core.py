@@ -113,10 +113,15 @@ class BoardClient:
 
         return json.dumps(results, indent=2)
 
-    def move_task(self, task_id: str, new_column: str) -> str:
+    def move_task(self, task_id: str, new_column: str, notify_on_completion: bool = True) -> str:
         logger.info(f"Moving task {task_id} to column {new_column} (agent: {self.agent_id})")
         """
         Move a task to another column.
+        
+        Args:
+            task_id: Task ID to move
+            new_column: Target column
+            notify_on_completion: If True and moving to "done", create completion event
         """
         if new_column not in self.columns:
             raise BoardError(f"Unknown column '{new_column}'")
@@ -149,6 +154,32 @@ class BoardClient:
 
         # Optional: update workspace symlinks
         self._update_workspace_links(task_id, old_column, new_column)
+        
+        # If moving to "done" and notification enabled, create completion event
+        if new_column == "done" and notify_on_completion:
+            # Determine who to notify: original requestor or default superagent
+            notify_agent = None
+            
+            # Check if task has a "requested_by" field (set when task is created/delegated)
+            requested_by = task.get("requested_by")
+            if requested_by and requested_by in self._agent_index:
+                notify_agent = requested_by
+            else:
+                # Fall back to default superagent
+                notify_agent = self.get_default_superagent_id()
+            
+            if notify_agent and notify_agent != self.agent_id:
+                try:
+                    from crewkan.board_events import create_completion_event
+                    create_completion_event(
+                        board_root=self.root,
+                        task_id=task_id,
+                        completed_by=self.agent_id,
+                        notify_agent=notify_agent,
+                    )
+                    logger.info(f"Created completion event for task {task_id}, notifying {notify_agent}")
+                except Exception as e:
+                    logger.warning(f"Failed to create completion event: {e}")
 
         logger.debug(f"Moved task {task_id} from {old_column} to {new_column}")
         return f"Moved task {task_id} from '{old_column}' to '{new_column}'."

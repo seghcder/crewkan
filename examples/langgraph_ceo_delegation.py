@@ -47,7 +47,9 @@ def create_ceo_node(board_root: str):
     """Create CEO agent node that delegates tasks."""
     
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    tools = make_board_tools(board_root, "ceo")
+    board_tools = make_board_tools(board_root, "ceo")
+    event_tools = make_event_tools(board_root, "ceo")
+    tools = board_tools + event_tools
     tool_node = ToolNode(tools)
     llm_with_tools = llm.bind_tools(tools)
     
@@ -122,17 +124,8 @@ def create_worker_node(board_root: str, worker_id: str):
             tool_messages = [{"role": "assistant", "content": response.content, "tool_calls": response.tool_calls}]
             tool_responses = await tool_node.ainvoke({"messages": tool_messages})
             
-            # Check if task was moved to done
-            for tool_call in response.tool_calls:
-                if tool_call["name"] == "move_task" and tool_call["args"].get("new_column") == "done":
-                    # Task completed! Notify CEO
-                    from crewkan.board_events import create_completion_event
-                    create_completion_event(
-                        board_root=board_root,
-                        task_id=task_id,
-                        completed_by=worker_id,
-                        notify_agent="ceo"
-                    )
+            # Note: Completion events are automatically created by BoardClient.move_task()
+            # when a task is moved to "done", so we don't need to manually create them here
             
             return {
                 "messages": messages + [response] + tool_responses["messages"],
@@ -154,17 +147,21 @@ def create_ceo_notification_node(board_root: str):
         """Check for task completion notifications."""
         from crewkan.board_events import list_pending_events
         
-        events = list_pending_events(board_root, "ceo")
+        events = list_pending_events(board_root, "ceo", event_type="task_completed")
         
         if events:
             notifications = []
             for event in events:
-                notifications.append(f"Task {event['task_id']} completed by {event['completed_by']}")
+                data = event.get("data", {})
+                task_id = data.get("task_id", "unknown")
+                completed_by = data.get("completed_by", "unknown")
+                task_title = data.get("task_title", "")
+                notifications.append(f"Task {task_id} ({task_title}) completed by {completed_by}")
             
             return {
                 "messages": state["messages"] + [{
                     "role": "assistant",
-                    "content": f"Notifications: {'; '.join(notifications)}"
+                    "content": f"Task completion notifications:\n" + "\n".join(f"  - {n}" for n in notifications)
                 }]
             }
         
