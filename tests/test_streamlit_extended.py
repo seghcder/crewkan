@@ -224,12 +224,20 @@ def test_add_comment_via_ui(streamlit_server, page, test_board):
     # Add comment
     client.add_comment(task_id, "This is a test comment")
     
-    # Verify in backend
-    tasks_json = client.list_my_tasks()
-    tasks = json.loads(tasks_json)
-    task = next((t for t in tasks if t["id"] == task_id), None)
-    assert task is not None
-    history = task.get("history", [])
+    # Verify in backend by reading task file directly
+    import yaml
+    task_file = test_board / "tasks" / "todo" / f"{task_id}.yaml"
+    if not task_file.exists():
+        # Check other columns
+        for col_dir in (test_board / "tasks").iterdir():
+            if col_dir.is_dir():
+                task_file = col_dir / f"{task_id}.yaml"
+                if task_file.exists():
+                    break
+    assert task_file.exists(), f"Task file not found: {task_id}"
+    with open(task_file) as f:
+        task_data = yaml.safe_load(f)
+    history = task_data.get("history", [])
     comment_found = any("test comment" in h.get("details", "").lower() for h in history)
     assert comment_found, "Comment should be in history"
     

@@ -372,9 +372,24 @@ def run_test_suite(interface: TestInterface, ctx: TestContext, interface_name: s
     # Test 6: Add comment
     print("Test 6: Add comment")
     interface.add_comment(ctx, task_id, "Test comment from automated test")
-    task = ctx.verify_task_exists(task_id)
-    # Verify comment in history
-    history = task.get("history", [])
+    # Verify comment by reading task file directly (list_my_tasks doesn't include full history)
+    import yaml
+    from crewkan.board_core import BoardClient
+    client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
+    # Find task file
+    tasks_dir = ctx.board_dir / "tasks"
+    task_file = None
+    for col_dir in tasks_dir.iterdir():
+        if col_dir.is_dir():
+            for tf in col_dir.glob(f"{task_id}.yaml"):
+                task_file = tf
+                break
+        if task_file:
+            break
+    assert task_file is not None, f"Task file not found for {task_id}"
+    with open(task_file) as f:
+        task_data = yaml.safe_load(f)
+    history = task_data.get("history", [])
     comment_found = any("Test comment" in h.get("details", "") for h in history)
     assert comment_found, "Comment not found in task history"
     print(f"  ✓ Added comment")

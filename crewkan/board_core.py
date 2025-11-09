@@ -149,26 +149,38 @@ class BoardClient:
 
     def update_task_field(self, task_id: str, field: str, value: str) -> str:
         """
-        Update a simple top-level field (title, description, priority, due_date).
+        Update a simple top-level field (title, description, priority, due_date, tags).
+        For tags, value should be comma-separated string.
         """
-        allowed_fields = {"title", "description", "priority", "due_date"}
+        allowed_fields = {"title", "description", "priority", "due_date", "tags"}
         if field not in allowed_fields:
             raise BoardError(f"Field '{field}' not allowed. Allowed: {', '.join(sorted(allowed_fields))}")
 
         path, task = self.find_task(task_id)
         old_value = task.get(field)
-        task[field] = value
+        
+        # Handle tags specially - convert comma-separated string to list
+        if field == "tags":
+            if isinstance(value, str):
+                task[field] = [t.strip() for t in value.split(",") if t.strip()]
+            elif isinstance(value, list):
+                task[field] = value
+            else:
+                raise BoardError(f"Tags must be string or list, got {type(value)}")
+        else:
+            task[field] = value
+        
         task["updated_at"] = now_iso()
         task.setdefault("history", []).append(
             {
                 "at": task["updated_at"],
                 "by": self.agent_id,
                 "event": "updated",
-                "details": f"{field}: '{old_value}' -> '{value}'",
+                "details": f"{field}: '{old_value}' -> '{task[field]}'",
             }
         )
         save_yaml(path, task)
-        return f"Updated task {task_id} field '{field}' from '{old_value}' to '{value}'."
+        return f"Updated task {task_id} field '{field}' from '{old_value}' to '{task[field]}'."
 
     def add_comment(self, task_id: str, comment: str) -> str:
         """
