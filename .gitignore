@@ -49,6 +49,7 @@ crewkan_board/
 test_board/
 test_board_ui/
 boards/
+examples/ceo_delegation_board/
 *.yaml.bak
 *.yaml~
 
