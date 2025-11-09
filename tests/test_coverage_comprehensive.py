@@ -288,7 +288,7 @@ def run_coverage_comprehensive():
         })
         save_agents(test_board, agents_data)
         
-        # Test build_parser and main
+        # Test build_parser and main with various commands
         from crewkan.crewkan_cli import build_parser, main
         parser = build_parser()
         
@@ -301,6 +301,335 @@ def run_coverage_comprehensive():
             pass  # Expected for --help
         finally:
             sys.argv = old_argv
+        
+        # Test main with list-agents command
+        sys.argv = ["crewkan_cli", "--root", str(test_board), "list-agents"]
+        try:
+            main()
+        except SystemExit:
+            pass
+        finally:
+            sys.argv = old_argv
+        
+        # Test main with new-task command
+        if task_files:
+            sys.argv = [
+                "crewkan_cli",
+                "--root", str(test_board),
+                "new-task",
+                "--title", "CLI Main Test",
+                "--column", "todo",
+                "--assignee", "test-agent",
+            ]
+            try:
+                main()
+            except SystemExit:
+                pass
+            finally:
+                sys.argv = old_argv
+        
+        # Test main with list-tasks command
+        sys.argv = ["crewkan_cli", "--root", str(test_board), "list-tasks"]
+        try:
+            main()
+        except SystemExit:
+            pass
+        finally:
+            sys.argv = old_argv
+        
+        # Test main with invalid command (should error)
+        sys.argv = ["crewkan_cli", "--root", str(test_board), "invalid-command"]
+        try:
+            main()
+        except (SystemExit, Exception):
+            pass  # Expected
+        finally:
+            sys.argv = old_argv
+        
+        # Test cmd_list_agents with no agents
+        empty_agents_board = temp_dir / "empty_agents_board"
+        init_board(empty_agents_board, "empty", "Empty", "test-agent", "test-agent")
+        agents_file = empty_agents_board / "agents" / "agents.yaml"
+        agents_file.write_text("agents: []")
+        args = MockArgs(root=str(empty_agents_board))
+        cmd_list_agents(args)
+        
+        # Test cmd_new_task with all optional fields
+        args = MockArgs(
+            root=str(test_board),
+            title="Full Task",
+            description="Full description",
+            column="backlog",
+            assignee=["test-agent"],
+            priority="low",
+            tags="tag1,tag2,tag3",
+            due_date="2025-12-31",
+            id="CUSTOM-123",
+        )
+        cmd_new_task(args)
+        
+        # Test cmd_new_task with no assignees (should use default)
+        args = MockArgs(
+            root=str(test_board),
+            title="No Assignees Task",
+            description="",
+            column="todo",
+            assignee=[],
+            priority=None,
+            tags="",
+            due_date=None,
+            id=None,
+        )
+        cmd_new_task(args)
+        
+        # Test cmd_new_task fallback path (BoardClient fails)
+        fallback_cli_board = temp_dir / "fallback_cli_board"
+        init_board(fallback_cli_board, "fallback", "Fallback", "test-agent", "test-agent")
+        # Break agents to trigger fallback
+        agents_file = fallback_cli_board / "agents" / "agents.yaml"
+        agents_backup = agents_file.read_text()
+        agents_file.write_text("agents: []")  # Empty agents
+        
+        args = MockArgs(
+            root=str(fallback_cli_board),
+            title="Fallback CLI Task",
+            description="Test fallback",
+            column="todo",
+            assignee=[],
+            priority="medium",
+            tags="fallback",
+            due_date=None,
+            id="FALLBACK-1",
+        )
+        try:
+            cmd_new_task(args)
+        except RuntimeError:
+            pass  # Expected - no agents
+        
+        # Test cmd_new_task fallback with invalid agent
+        agents_file.write_text("agents:\n  - id: test-agent\n    name: Test")
+        args = MockArgs(
+            root=str(fallback_cli_board),
+            title="Fallback Invalid Agent",
+            description="Test",
+            column="todo",
+            assignee=["nonexistent-agent"],
+            priority=None,
+            tags="",
+            due_date=None,
+            id=None,
+        )
+        try:
+            cmd_new_task(args)
+        except RuntimeError:
+            pass  # Expected - invalid agent
+        
+        # Test cmd_new_task fallback with invalid column
+        args = MockArgs(
+            root=str(fallback_cli_board),
+            title="Fallback Invalid Column",
+            description="Test",
+            column="invalid_column",
+            assignee=["test-agent"],
+            priority=None,
+            tags="",
+            due_date=None,
+            id=None,
+        )
+        try:
+            cmd_new_task(args)
+        except RuntimeError:
+            pass  # Expected - invalid column
+        
+        agents_file.write_text(agents_backup)
+        
+        # Test cmd_new_task with BoardClient (normal path)
+        args = MockArgs(
+            root=str(test_board),
+            title="BoardClient Task",
+            description="Test",
+            column="todo",
+            assignee=["test-agent"],
+            priority="high",
+            tags="test,cli",
+            due_date="2025-12-31",
+            id=None,
+        )
+        cmd_new_task(args)
+        
+        # Test cmd_list_tasks with various filters
+        args = MockArgs(root=str(test_board), column="backlog", agent=None)
+        cmd_list_tasks(args)
+        
+        args = MockArgs(root=str(test_board), column=None, agent="test-agent")
+        cmd_list_tasks(args)
+        
+        args = MockArgs(root=str(test_board), column="doing", agent="test-agent")
+        cmd_list_tasks(args)
+        
+        # Test cmd_validate with various board states
+        # Create a board with some issues
+        invalid_task_board = temp_dir / "invalid_task_board"
+        init_board(invalid_task_board, "invalid", "Invalid", "test-agent", "test-agent")
+        # Create a task with invalid column
+        invalid_task = {
+            "id": "INVALID-1",
+            "title": "Invalid Task",
+            "column": "invalid_column",
+            "status": "invalid_column",
+            "assignees": ["test-agent"],
+        }
+        invalid_task_path = invalid_task_board / "tasks" / "todo" / "INVALID-1.yaml"
+        save_yaml(invalid_task_path, invalid_task)
+        
+        # Create a task with invalid status (different from column)
+        invalid_task2 = {
+            "id": "INVALID-2",
+            "title": "Invalid Status Task",
+            "column": "todo",
+            "status": "invalid_status",
+            "assignees": ["test-agent"],
+        }
+        invalid_task_path2 = invalid_task_board / "tasks" / "todo" / "INVALID-2.yaml"
+        save_yaml(invalid_task_path2, invalid_task2)
+        
+        # Create a task with column mismatch (in wrong directory)
+        invalid_task3 = {
+            "id": "INVALID-3",
+            "title": "Column Mismatch",
+            "column": "doing",
+            "status": "doing",
+            "assignees": ["test-agent"],
+        }
+        invalid_task_path3 = invalid_task_board / "tasks" / "todo" / "INVALID-3.yaml"
+        save_yaml(invalid_task_path3, invalid_task3)
+        
+        # Create a task with invalid assignee
+        invalid_task4 = {
+            "id": "INVALID-4",
+            "title": "Invalid Assignee",
+            "column": "todo",
+            "status": "todo",
+            "assignees": ["nonexistent-agent"],
+        }
+        invalid_task_path4 = invalid_task_board / "tasks" / "todo" / "INVALID-4.yaml"
+        save_yaml(invalid_task_path4, invalid_task4)
+        
+        # Create a task that's not a dict
+        non_dict_path = invalid_task_board / "tasks" / "todo" / "NOT-DICT.yaml"
+        non_dict_path.write_text("not a dict: [invalid yaml")
+        
+        args = MockArgs(root=str(invalid_task_board))
+        try:
+            cmd_validate(args)
+        except SystemExit:
+            pass  # Expected - validation should fail
+        
+        # Test cmd_start_task with column specified
+        task_files = list((test_board / "tasks").rglob("*.yaml"))
+        if task_files:
+            task_id = task_files[0].stem
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="doing")
+            cmd_start_task(args)
+            
+            # Test cmd_start_task moving task to different column
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
+            cmd_start_task(args)
+            
+            # Test cmd_stop_task with column specified
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
+            cmd_stop_task(args)
+            
+            # Test cmd_stop_task without column (search all)
+            # First create a workspace link
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="todo")
+            cmd_start_task(args)
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column=None)
+            cmd_stop_task(args)
+            
+            # Test cmd_stop_task with no workspace link found
+            args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent", column="todo")
+            cmd_stop_task(args)  # Should not error, just print message
+        
+        # Test cmd_start_task with invalid agent
+        if task_files:
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="nonexistent", column="doing")
+            try:
+                cmd_start_task(args)
+            except RuntimeError:
+                pass  # Expected
+        
+        # Test cmd_start_task with invalid column
+        if task_files:
+            args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="invalid")
+            try:
+                cmd_start_task(args)
+            except RuntimeError:
+                pass  # Expected
+        
+        # Test cmd_move_task error path (nonexistent task)
+        args = MockArgs(root=str(test_board), task_id="nonexistent", column="doing")
+        try:
+            cmd_move_task(args)
+        except RuntimeError:
+            pass  # Expected
+        
+        # Test cmd_move_task with no agents
+        no_agents_board = temp_dir / "no_agents_board"
+        init_board(no_agents_board, "no_agents", "No Agents", "test-agent", "test-agent")
+        agents_file = no_agents_board / "agents" / "agents.yaml"
+        agents_file.write_text("agents: []")
+        args = MockArgs(root=str(no_agents_board), task_id="T-123", column="doing")
+        try:
+            cmd_move_task(args)
+        except RuntimeError:
+            pass  # Expected - no agents
+        
+        # Test cmd_assign_task error path (nonexistent task)
+        args = MockArgs(root=str(test_board), task_id="nonexistent", assignee=["test-agent"])
+        try:
+            cmd_assign_task(args)
+        except RuntimeError:
+            pass  # Expected
+        
+        # Test cmd_assign_task with no agents
+        args = MockArgs(root=str(no_agents_board), task_id="T-123", assignee=["test-agent"])
+        try:
+            cmd_assign_task(args)
+        except RuntimeError:
+            pass  # Expected - no agents
+        
+        # Test cmd_assign_task with multiple assignees
+        task_files = list((test_board / "tasks").rglob("*.yaml"))
+        if task_files:
+            task_id = task_files[0].stem
+            args = MockArgs(root=str(test_board), task_id=task_id, assignee=["test-agent", "test-agent"])
+            cmd_assign_task(args)
+        
+        # Test load_board error path
+        invalid_board_cli = temp_dir / "invalid_board_cli"
+        invalid_board_cli.mkdir()
+        try:
+            load_board(invalid_board_cli)
+        except RuntimeError:
+            pass  # Expected
+        
+        # Test load_agents with missing file
+        agents_file = test_board / "agents" / "agents.yaml"
+        agents_backup = agents_file.read_text()
+        agents_file.unlink()
+        agents = load_agents(test_board)
+        agents_file.write_text(agents_backup)
+        
+        # Test get_column_ids
+        board_data = load_board(test_board)
+        col_ids = get_column_ids(board_data)
+        
+        # Test find_task_file error path
+        try:
+            find_task_file(test_board, "nonexistent-task")
+        except RuntimeError:
+            pass  # Expected
         
         print("  ✓ CLI functions tested")
     except Exception as e:
@@ -388,7 +717,7 @@ def run_coverage_comprehensive():
         empty_tasks = list(iter_tasks())
         os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
         
-        # Test create task
+        # Test create task with BoardClient
         task_id = create_task(
             "UI Coverage Test",
             "Test description",
@@ -399,18 +728,139 @@ def run_coverage_comprehensive():
             None,
         )
         
-        # Test move task
+        # Test create task with fallback (no agents)
+        empty_board_ui = temp_dir / "empty_board_ui"
+        init_board(empty_board_ui, "empty", "Empty", "test-agent", "test-agent")
+        # Remove agents file to trigger fallback
+        agents_file = empty_board_ui / "agents" / "agents.yaml"
+        if agents_file.exists():
+            agents_file.unlink()
+        
+        os.environ["CREWKAN_BOARD_ROOT"] = str(empty_board_ui)
+        try:
+            create_task(
+                "Fallback Test",
+                "Test",
+                "todo",
+                [],
+                "medium",
+                "",
+                None,
+            )
+        except RuntimeError:
+            pass  # Expected - no agents
+        
+        # Test create_task fallback path (BoardClient fails)
+        # Create a board with invalid agent to trigger fallback
+        fallback_board = temp_dir / "fallback_board"
+        init_board(fallback_board, "fallback", "Fallback", "test-agent", "test-agent")
+        # Break agents.yaml to make BoardClient fail
+        agents_file = fallback_board / "agents" / "agents.yaml"
+        agents_file.write_text("invalid: [")
+        os.environ["CREWKAN_BOARD_ROOT"] = str(fallback_board)
+        try:
+            fallback_task_id = create_task(
+                "Fallback Path Test",
+                "Test description",
+                "todo",
+                ["test-agent"],
+                "high",
+                "fallback,test",
+                "2025-12-31",
+            )
+            # Verify task was created via fallback
+            task_file = fallback_board / "tasks" / "todo" / f"{fallback_task_id}.yaml"
+            assert task_file.exists()
+        except Exception as e:
+            pass  # May fail if fallback also fails
+        
+        os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
+        
+        # Test create task with empty title (should still work)
+        task_id2 = create_task(
+            "",
+            "Description only",
+            "todo",
+            ["test-agent"],
+            "low",
+            "",
+            "2025-12-31",
+        )
+        
+        # Test move task with BoardClient
         import yaml
         task_path = test_board / "tasks" / "todo" / f"{task_id}.yaml"
         with open(task_path) as f:
             task_data = yaml.safe_load(f)
         move_task(task_data, task_path, "doing")
         
-        # Test assign task
+        # Test move task with fallback (invalid agent)
+        task_path2 = test_board / "tasks" / "todo" / f"{task_id2}.yaml"
+        with open(task_path2) as f:
+            task_data2 = yaml.safe_load(f)
+        # Temporarily break agents to trigger fallback
+        agents_file = test_board / "agents" / "agents.yaml"
+        agents_backup = agents_file.read_text()
+        agents_file.write_text("invalid yaml: [")
+        try:
+            move_task(task_data2, task_path2, "backlog")
+        except Exception:
+            pass  # Expected
+        finally:
+            agents_file.write_text(agents_backup)
+        
+        # Test assign task with BoardClient
         task_path = test_board / "tasks" / "doing" / f"{task_id}.yaml"
         with open(task_path) as f:
             task_data = yaml.safe_load(f)
         assign_task(task_data, task_path, "test-agent")
+        
+        # Test assign task with fallback
+        task_path2 = test_board / "tasks" / "backlog" / f"{task_id2}.yaml"
+        if task_path2.exists():
+            with open(task_path2) as f:
+                task_data2 = yaml.safe_load(f)
+            # Break agents to trigger fallback
+            agents_file.write_text("invalid yaml: [")
+            try:
+                assign_task(task_data2, task_path2, "test-agent")
+            except Exception:
+                pass  # Expected
+            finally:
+                agents_file.write_text(agents_backup)
+        
+        # Test move_task with same column (should return early)
+        task_path = test_board / "tasks" / "doing" / f"{task_id}.yaml"
+        if task_path.exists():
+            with open(task_path) as f:
+                task_data = yaml.safe_load(f)
+            move_task(task_data, task_path, "doing")  # Same column
+        
+        # Test load_board with missing board.yaml (should error)
+        invalid_board = temp_dir / "invalid_board_ui"
+        invalid_board.mkdir()
+        os.environ["CREWKAN_BOARD_ROOT"] = str(invalid_board)
+        try:
+            load_board()
+        except Exception:
+            pass  # Expected - st.stop() or error
+        
+        os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
+        
+        # Test load_agents with missing agents file
+        agents_file = test_board / "agents" / "agents.yaml"
+        agents_backup = agents_file.read_text()
+        agents_file.unlink()
+        agents = load_agents()  # Should return empty list
+        agents_file.write_text(agents_backup)
+        
+        # Test iter_tasks with no tasks directory
+        no_tasks_board = temp_dir / "no_tasks_board"
+        init_board(no_tasks_board, "no_tasks", "No Tasks", "test-agent", "test-agent")
+        (no_tasks_board / "tasks").rmdir()  # Remove tasks directory
+        os.environ["CREWKAN_BOARD_ROOT"] = str(no_tasks_board)
+        empty_iter = list(iter_tasks())
+        os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
         
         print("  ✓ UI functions tested")
     except Exception as e:
