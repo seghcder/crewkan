@@ -84,9 +84,18 @@ def streamlit_server(test_board):
 
 def test_create_task_via_ui(streamlit_server, page, test_board):
     """Test creating a task through the UI and verify it exists."""
+    # Create screenshot directory
+    screenshot_dir = Path(__file__).parent.parent / "tmp" / "test_runs"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    
     page.goto(streamlit_server)
     page.wait_for_selector("h1", timeout=10000)
     page.wait_for_timeout(2000)
+    
+    # Take screenshot of initial load
+    screenshot_path = screenshot_dir / "extended_01_initial_load.png"
+    page.screenshot(path=str(screenshot_path), full_page=True)
+    print(f"📸 Screenshot saved: {screenshot_path}")
     
     # Create task via BoardClient (simulating UI form submission)
     client = BoardClient(test_board, "nuni")

@@ -94,11 +94,20 @@ def streamlit_server(test_board):
 
 def test_ui_loads(streamlit_server, page):
     """Test that the UI loads successfully."""
+    # Create screenshot directory
+    screenshot_dir = Path(__file__).parent.parent / "tmp" / "test_runs"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    
     page.goto(streamlit_server)
     
     # Wait for title
     title = page.wait_for_selector("h1", timeout=10000)
     title_text = title.inner_text()
+    
+    # Take screenshot of initial load
+    screenshot_path = screenshot_dir / "01_ui_initial_load.png"
+    page.screenshot(path=str(screenshot_path), full_page=True)
+    print(f"📸 Screenshot saved: {screenshot_path}")
     
     assert "AI Agent Task Board" in title_text or "CrewKan" in title_text
     print("✓ Test: UI loads - PASSED")
@@ -106,6 +115,10 @@ def test_ui_loads(streamlit_server, page):
 
 def test_create_task_via_ui(streamlit_server, page, test_board):
     """Test creating a task through the UI."""
+    # Create screenshot directory
+    screenshot_dir = Path(__file__).parent.parent / "tmp" / "test_runs"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    
     page.goto(streamlit_server)
     
     # Wait for page to load
@@ -113,6 +126,11 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
     
     # Wait for Streamlit to fully render
     page.wait_for_timeout(2000)
+    
+    # Take screenshot of page before interaction
+    screenshot_path = screenshot_dir / "02_before_form_interaction.png"
+    page.screenshot(path=str(screenshot_path), full_page=True)
+    print(f"📸 Screenshot saved: {screenshot_path}")
     
     # Find the new task form in sidebar
     # Streamlit forms use specific structure - look for form elements
@@ -123,6 +141,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
         'textarea[aria-label*="Title" i]',
         'input[type="text"]',
         '.stTextInput input',
+        'input[data-testid*="textInput"]',
     ]
     
     title_input = None
@@ -130,6 +149,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
         try:
             title_input = page.wait_for_selector(selector, timeout=2000)
             if title_input:
+                print(f"✓ Found title input with selector: {selector}")
                 break
         except:
             continue
@@ -139,30 +159,56 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
         title_input.fill("Test Task from Playwright")
         page.wait_for_timeout(500)
         
+        # Screenshot after filling title
+        screenshot_path = screenshot_dir / "03_after_filling_title.png"
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        print(f"📸 Screenshot saved: {screenshot_path}")
+        
         # Find description field
         desc_selectors = [
             'textarea[aria-label*="Description" i]',
             'textarea[placeholder*="Description" i]',
             '.stTextArea textarea',
+            'textarea[data-testid*="textArea"]',
         ]
         for selector in desc_selectors:
             desc_input = page.query_selector(selector)
             if desc_input:
                 desc_input.fill("This is a test task created via Playwright")
+                print(f"✓ Filled description with selector: {selector}")
                 break
+        
+        # Screenshot after filling description
+        screenshot_path = screenshot_dir / "04_after_filling_description.png"
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        print(f"📸 Screenshot saved: {screenshot_path}")
         
         # Find and click submit button
         submit_selectors = [
+            'button:has-text("Create Task")',
             'button:has-text("Create task")',
             'button:has-text("Create")',
             'button[type="submit"]',
             'form button[type="submit"]',
+            'button[kind="primary"]',
         ]
+        submit_button = None
         for selector in submit_selectors:
             submit_button = page.query_selector(selector)
             if submit_button:
+                print(f"✓ Found submit button with selector: {selector}")
+                # Screenshot before clicking
+                screenshot_path = screenshot_dir / "05_before_clicking_submit.png"
+                page.screenshot(path=str(screenshot_path), full_page=True)
+                print(f"📸 Screenshot saved: {screenshot_path}")
+                
                 submit_button.click()
                 page.wait_for_timeout(3000)  # Wait for form submission and rerun
+                
+                # Screenshot after clicking
+                screenshot_path = screenshot_dir / "06_after_clicking_submit.png"
+                page.screenshot(path=str(screenshot_path), full_page=True)
+                print(f"📸 Screenshot saved: {screenshot_path}")
                 
                 # Verify task was created in filesystem
                 from crewkan.board_core import BoardClient
@@ -178,6 +224,17 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
                 return
     
     # Fallback: Just verify page loaded and board exists
+    # Take screenshot of what we see
+    screenshot_path = screenshot_dir / "07_fallback_page_state.png"
+    page.screenshot(path=str(screenshot_path), full_page=True)
+    print(f"📸 Screenshot saved: {screenshot_path}")
+    
+    # Also save page HTML for debugging
+    html_path = screenshot_dir / "07_page_html.html"
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(page.content())
+    print(f"📄 HTML saved: {html_path}")
+    
     page_text = page.inner_text("body")
     assert "todo" in page_text.lower() or "backlog" in page_text.lower(), "Board should be visible"
     print("⚠ Test: Create task via UI - Form not found, but page loaded")

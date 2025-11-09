@@ -52,6 +52,11 @@ boards/
 *.yaml.bak
 *.yaml~
 
+# Test artifacts
+tmp/
+*.png
+*.html
+
 # Environment variables
 .env
 .env.local
