@@ -237,11 +237,210 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
         return task_id
 
 
+def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
+    """Render a detailed task view page (Jira-style layout)."""
+    board_root = get_board_root()
+    agents = load_agents()
+    agent_map = {a["id"]: a for a in agents}
+    
+    # Get BoardClient for API calls
+    default_agent = agents[0]["id"] if agents else "ui"
+    client = BoardClient(board_root, default_agent)
+    
+    # Get comments
+    comments = client.get_comments(task_id)
+    
+    # Back button
+    if st.button("← Back to Board", key="back_to_board"):
+        if "viewing_task" in st.session_state:
+            del st.session_state["viewing_task"]
+        st.rerun()
+    
+    st.title(task_data.get("title", "Untitled Task"))
+    
+    # Layout: Left 1/3 for attributes, Right 2/3 for main content
+    left_col, right_col = st.columns([1, 2])
+    
+    with left_col:
+        st.header("Attributes")
+        
+        # Task ID
+        st.markdown(f"**Task ID:**")
+        st.code(task_data.get("id", ""), language=None)
+        
+        # Status/Column
+        column = task_data.get("column", task_data.get("status", "unknown"))
+        st.markdown(f"**Status:** {column}")
+        
+        # Priority
+        priority = task_data.get("priority", "medium")
+        priority_colors = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+        st.markdown(f"**Priority:** {priority_colors.get(priority, '⚪')} {priority}")
+        
+        # Assignees
+        assignees = task_data.get("assignees", [])
+        st.markdown(f"**Assignees:**")
+        if assignees:
+            for assignee_id in assignees:
+                agent = agent_map.get(assignee_id, {})
+                agent_name = agent.get("name", assignee_id)
+                st.markdown(f"- {agent_name} ({assignee_id})")
+        else:
+            st.markdown("_None_")
+        
+        # Tags
+        tags = task_data.get("tags", [])
+        st.markdown(f"**Tags:**")
+        if tags:
+            st.markdown(", ".join([f"`{tag}`" for tag in tags]))
+        else:
+            st.markdown("_None_")
+        
+        # Due Date
+        due_date = task_data.get("due_date")
+        if due_date:
+            st.markdown(f"**Due Date:** {due_date}")
+        
+        # Created/Updated
+        st.markdown("---")
+        created_at = task_data.get("created_at", "")
+        updated_at = task_data.get("updated_at", "")
+        if created_at:
+            st.markdown(f"**Created:** {created_at}")
+        if updated_at:
+            st.markdown(f"**Updated:** {updated_at}")
+        
+        # Requested By
+        requested_by = task_data.get("requested_by")
+        if requested_by:
+            agent = agent_map.get(requested_by, {})
+            agent_name = agent.get("name", requested_by)
+            st.markdown(f"**Requested by:** {agent_name}")
+        
+        # Quick Actions
+        st.markdown("---")
+        st.header("Quick Actions")
+        
+        # Move task
+        board = load_board()
+        columns = board.get("columns", [])
+        col_ids = [c["id"] for c in columns]
+        current_col = task_data.get("column", task_data.get("status", ""))
+        new_col = st.selectbox(
+            "Move to:",
+            [c for c in col_ids if c != current_col],
+            key=f"detail_move_{task_id}",
+        )
+        if st.button("Move Task", key=f"detail_move_btn_{task_id}"):
+            try:
+                client.move_task(task_id, new_col)
+                st.success(f"Moved to {new_col}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+        
+        # Reassign
+        new_assignee = st.selectbox(
+            "Reassign to:",
+            ["(none)"] + [a["id"] for a in agents],
+            key=f"detail_reassign_{task_id}",
+        )
+        if st.button("Reassign", key=f"detail_reassign_btn_{task_id}"):
+            if new_assignee != "(none)":
+                try:
+                    client.reassign_task(task_id, new_assignee, keep_existing=False)
+                    st.success(f"Reassigned to {new_assignee}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    
+    with right_col:
+        # Description
+        st.header("Description")
+        description = task_data.get("description", "")
+        if description:
+            st.markdown(description)
+        else:
+            st.markdown("_No description_")
+        
+        st.markdown("---")
+        
+        # Comments Section
+        st.header("Comments")
+        
+        # Add new comment
+        with st.expander("Add Comment", expanded=False):
+            new_comment = st.text_area("Comment", key=f"new_comment_{task_id}", height=100)
+            if st.button("Post Comment", key=f"post_comment_{task_id}"):
+                if new_comment.strip():
+                    try:
+                        comment_id = client.add_comment(task_id, new_comment.strip())
+                        st.success(f"Comment added (ID: {comment_id})")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        
+        # Display comments
+        if comments:
+            for comment in comments:
+                comment_id = comment.get("comment_id", "")
+                comment_by = comment.get("by", "unknown")
+                comment_at = comment.get("at", "")
+                comment_details = comment.get("details", "")
+                
+                agent = agent_map.get(comment_by, {})
+                agent_name = agent.get("name", comment_by)
+                
+                with st.container():
+                    st.markdown(f"**{agent_name}** ({comment_by})")
+                    if comment_id:
+                        st.caption(f"Comment ID: {comment_id} | {comment_at}")
+                    else:
+                        st.caption(comment_at)
+                    st.markdown(comment_details)
+                    st.markdown("---")
+        else:
+            st.markdown("_No comments yet_")
+        
+        # History (all events)
+        st.markdown("---")
+        st.header("History")
+        history = task_data.get("history", [])
+        if history:
+            for entry in reversed(history):  # Show newest first
+                event = entry.get("event", "")
+                event_by = entry.get("by", "unknown")
+                event_at = entry.get("at", "")
+                event_details = entry.get("details", "")
+                
+                agent = agent_map.get(event_by, {})
+                agent_name = agent.get("name", event_by)
+                
+                st.markdown(f"**{event.upper()}** by {agent_name} at {event_at}")
+                if event_details:
+                    st.caption(event_details)
+                st.markdown("---")
+        else:
+            st.markdown("_No history_")
+
+
 def main() -> None:
     st.set_page_config(page_title="AI Agent Board", layout="wide")
     
     logger.info("=== Main function called ===")
     logger.info(f"Session state keys: {list(st.session_state.keys())}")
+
+    # Check if we're viewing a task details page
+    if "viewing_task" in st.session_state:
+        task_id = st.session_state["viewing_task"]
+        # Find the task
+        for path, task in iter_tasks():
+            if task.get("id") == task_id:
+                render_task_details_page(task_id, task, path)
+                return
+        # Task not found, clear and show board
+        del st.session_state["viewing_task"]
+        st.rerun()
 
     # Title with refresh button
     col1, col2 = st.columns([4, 1])
@@ -490,6 +689,11 @@ def main() -> None:
                     if desc:
                         st.markdown("---")
                         st.markdown(desc)
+                    
+                    # View Details button
+                    if st.button("View Details", key=f"view_details_{tid}"):
+                        st.session_state["viewing_task"] = tid
+                        st.rerun()
 
                     # Rename task
                     new_title = st.text_input(

@@ -16,6 +16,7 @@ history: list(include('history_entry_schema'), required=False)
 
 ---
 history_entry_schema:
+  comment_id: str(required=False)
   at: str()
   by: str()
   event: str()

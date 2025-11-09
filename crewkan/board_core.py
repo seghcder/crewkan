@@ -67,11 +67,35 @@ class BoardClient:
     def get_default_superagent_id(self) -> str | None:
         return self.settings.get("default_superagent_id")
 
+    def get_board_owner_id(self) -> str | None:
+        """Get the board owner agent ID from settings, or None if not set.
+        
+        For backwards compatibility, if owner_agent_id is not in settings,
+        returns the default_superagent_id as a fallback.
+        """
+        owner_id = self.settings.get("owner_agent_id")
+        if owner_id:
+            return owner_id
+        # Fallback to default_superagent_id for backwards compatibility
+        return self.settings.get("default_superagent_id")
+
+    def is_board_owner(self, agent_id: str | None = None) -> bool:
+        """Check if the given agent (or current agent) is the board owner."""
+        agent_id = agent_id or self.agent_id
+        owner_id = self.get_board_owner_id()
+        return owner_id == agent_id if owner_id else False
+
     def get_agent(self, agent_id: str) -> dict | None:
         return self._agent_index.get(agent_id)
 
     def list_agents(self) -> list[dict]:
+        """Get list of all agents on the board."""
         return list(self._agent_index.values())
+    
+    def get_task_details(self, task_id: str) -> dict:
+        """Get full task details including history/comments."""
+        path, task = self.find_task(task_id)
+        return task
 
     # ------------------------------------------------------------------
     # Task discovery
@@ -241,19 +265,41 @@ class BoardClient:
         logger.info(f"Adding comment to task {task_id} (agent: {self.agent_id})")
         """
         Add a new comment event to the task history.
+        Returns the comment_id of the newly created comment.
+        """
+        import uuid
+        from crewkan.utils import now_iso
+        
+        path, task = self.find_task(task_id)
+        comment_id = f"C-{uuid.uuid4().hex[:8]}"
+        task["updated_at"] = now_iso()
+        comment_entry = {
+            "comment_id": comment_id,
+            "at": task["updated_at"],
+            "by": self.agent_id,
+            "event": "comment",
+            "details": comment,
+        }
+        task.setdefault("history", []).append(comment_entry)
+        save_yaml(path, task)
+        return comment_id
+    
+    def get_comments(self, task_id: str) -> list[dict]:
+        """
+        Get all comments for a task.
+        Returns a list of comment dictionaries with comment_id, at, by, and details.
         """
         path, task = self.find_task(task_id)
-        task["updated_at"] = now_iso()
-        task.setdefault("history", []).append(
-            {
-                "at": task["updated_at"],
-                "by": self.agent_id,
-                "event": "comment",
-                "details": comment,
-            }
-        )
-        save_yaml(path, task)
-        return f"Added comment to task {task_id}."
+        comments = []
+        for entry in task.get("history", []):
+            if entry.get("event") == "comment":
+                comments.append({
+                    "comment_id": entry.get("comment_id", ""),  # Backwards compatible
+                    "at": entry.get("at", ""),
+                    "by": entry.get("by", ""),
+                    "details": entry.get("details", ""),
+                })
+        return comments
 
     def reassign_task(
         self,

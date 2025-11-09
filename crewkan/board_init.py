@@ -71,6 +71,7 @@ def init_board(
             "task_filename_prefix": "T",
             "timezone": "UTC",
             "default_superagent_id": default_superagent_id,
+            "owner_agent_id": owner_agent_id,
         },
     }
     save_yaml(root / "board.yaml", board_data)
