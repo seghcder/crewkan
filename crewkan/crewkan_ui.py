@@ -243,7 +243,14 @@ def main() -> None:
     logger.info("=== Main function called ===")
     logger.info(f"Session state keys: {list(st.session_state.keys())}")
 
-    st.title("AI Agent Task Board")
+    # Title with refresh button
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.title("AI Agent Task Board")
+    with col2:
+        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True, key="manual_refresh"):
+            st.session_state["last_task_mtime"] = 0  # Force refresh
+            st.rerun()
 
     # Smart filesystem change detection - only check when not processing form submission
     # Initialize last check time
