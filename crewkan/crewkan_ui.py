@@ -245,20 +245,50 @@ def main() -> None:
 
     st.title("AI Agent Task Board")
 
-    # Auto-refresh if filesystem changes detected - DISABLED (may interfere with form submission)
-    # if "last_check" not in st.session_state:
-    #     st.session_state.last_check = time.time()
-    # 
-    # # Check for filesystem changes (simple polling)
-    # current_time = time.time()
-    # if current_time - st.session_state.last_check > 2.0:  # Check every 2 seconds
-    #     st.session_state.last_check = current_time
-    #     # Trigger rerun if board files changed (Streamlit will handle this)
-    #     st.rerun()
+    # Smart filesystem change detection - only check when not processing form submission
+    # Initialize last check time
+    if "last_check" not in st.session_state:
+        st.session_state.last_check = time.time()
+        st.session_state.last_file_hash = None
     
-    # Manual refresh button instead
-    if st.button("🔄 Refresh Board", help="Manually refresh the board to see latest changes"):
-        st.rerun()
+    # Only check for filesystem changes if we're not in the middle of form processing
+    # This prevents interference with form submission
+    form_processing = st.session_state.get("form_processing", False)
+    
+    if not form_processing:
+        current_time = time.time()
+        # Check every 3 seconds (less frequent to reduce interference)
+        if current_time - st.session_state.last_check > 3.0:
+            st.session_state.last_check = current_time
+            
+            # Check if task files have changed by comparing file modification times
+            board_root = get_board_root()
+            tasks_root = board_root / "tasks"
+            
+            if tasks_root.exists():
+                # Get latest modification time of any task file
+                latest_mtime = 0
+                for task_file in tasks_root.rglob("*.yaml"):
+                    if task_file.is_file():
+                        mtime = task_file.stat().st_mtime
+                        latest_mtime = max(latest_mtime, mtime)
+                
+                # Compare with last known modification time
+                last_mtime = st.session_state.get("last_task_mtime", 0)
+                
+                if latest_mtime > last_mtime:
+                    logger.info(f"Filesystem change detected (mtime: {latest_mtime} > {last_mtime})")
+                    st.session_state["last_task_mtime"] = latest_mtime
+                    # Only rerun if we're not in a form context
+                    if not st.session_state.get("in_form_context", False):
+                        st.rerun()
+    
+    # Manual refresh button
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True):
+            st.session_state["last_task_mtime"] = 0  # Force refresh
+            st.rerun()
 
     board = load_board()
     agents = load_agents()
@@ -295,6 +325,9 @@ def main() -> None:
         del st.session_state["create_task_message"]
         del st.session_state["create_task_message_type"]
     
+    # Mark that we're in form context to prevent auto-refresh interference
+    st.session_state["in_form_context"] = True
+    
     with st.sidebar.form("new_task_form", clear_on_submit=True):
         title = st.text_input("Title *", key="new_task_title")
         description = st.text_area("Description", height=100, key="new_task_desc")
@@ -314,6 +347,8 @@ def main() -> None:
         # With clear_on_submit=True, form values are cleared AFTER this block runs
         # So we capture and process values while they're still available
         if submitted:
+            # Mark that we're processing form to prevent auto-refresh
+            st.session_state["form_processing"] = True
             # Capture form values immediately (they'll be cleared after this block)
             captured_title = title
             captured_description = description
@@ -357,6 +392,15 @@ def main() -> None:
                     # Show immediate confirmation
                     st.toast(success_msg, icon="✅")
                     logger.info("Triggering rerun after successful task creation")
+                    # Clear form processing flag
+                    st.session_state["form_processing"] = False
+                    st.session_state["in_form_context"] = False
+                    # Update last modification time to prevent immediate refresh
+                    board_root = get_board_root()
+                    tasks_root = board_root / "tasks" / captured_column
+                    task_file = tasks_root / f"{task_id}.yaml"
+                    if task_file.exists():
+                        st.session_state["last_task_mtime"] = task_file.stat().st_mtime
                     # Form will be cleared automatically by clear_on_submit=True
                     st.rerun()
                 except Exception as e:
@@ -370,8 +414,15 @@ def main() -> None:
                     import traceback
                     st.session_state["create_task_traceback"] = traceback.format_exc()
                     logger.error(f"Full traceback:\n{st.session_state['create_task_traceback']}")
+                    # Clear form processing flag
+                    st.session_state["form_processing"] = False
+                    st.session_state["in_form_context"] = False
                     # Form will be cleared automatically, but we rerun to show error
                     st.rerun()
+    
+    # Clear form context flag after form block
+    if "in_form_context" in st.session_state and not st.session_state.get("form_processing", False):
+        st.session_state["in_form_context"] = False
     
     # Show error details if available
     if "create_task_error_details" in st.session_state:
