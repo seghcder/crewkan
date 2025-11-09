@@ -141,19 +141,39 @@ def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> No
 
 def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
     """Create a task using BoardClient for proper updates."""
-    logger.info(f"create_task called: title={title[:50]}, column={column_id}, agents={assignee_ids}")
+    logger.info("=" * 50)
+    logger.info("create_task() FUNCTION CALLED")
+    logger.info(f"  title: '{title}'")
+    logger.info(f"  description: '{description}'")
+    logger.info(f"  column_id: {column_id}")
+    logger.info(f"  assignee_ids: {assignee_ids}")
+    logger.info(f"  priority: {priority}")
+    logger.info(f"  tags: '{tags}'")
+    logger.info(f"  due_date_str: {due_date_str}")
+    logger.info("=" * 50)
     
     try:
         # Use BoardClient for proper task creation
+        logger.info("Loading agents...")
         agents = load_agents()
+        logger.info(f"Loaded {len(agents)} agents: {[a.get('id') for a in agents]}")
+        
         if not agents:
-            raise RuntimeError("No agents found in board. Please create at least one agent first.")
+            error_msg = "No agents found in board. Please create at least one agent first."
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         default_agent = agents[0]["id"]
         logger.info(f"Using agent: {default_agent}")
         
         board_root = get_board_root()
+        logger.info(f"Board root: {board_root}")
+        
+        logger.info("Creating BoardClient...")
         client = BoardClient(board_root, default_agent)
+        logger.info("BoardClient created successfully")
+        
+        logger.info("Calling client.create_task()...")
         task_id = client.create_task(
             title=title,
             description=description or "",
@@ -163,17 +183,24 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
             tags=[t.strip() for t in tags.split(",") if t.strip()] if tags else [],
             due_date=due_date_str or None,
         )
-        logger.info(f"Successfully created task {task_id} via BoardClient")
+        logger.info(f"✅ Successfully created task {task_id} via BoardClient")
+        logger.info(f"Task file should be at: {board_root / 'tasks' / column_id / f'{task_id}.yaml'}")
         return task_id
     except Exception as e:
         # Fallback to direct creation
         logger.warning(f"BoardClient create_task failed, using fallback: {e}", exc_info=True)
+        logger.info("Attempting fallback creation method...")
+        
         board = load_board()
         if not board:
-            raise RuntimeError("Cannot create task: board not loaded")
+            error_msg = "Cannot create task: board not loaded"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
         prefix = board.get("settings", {}).get("task_filename_prefix", "T")
         task_id: str = generate_task_id(prefix)
         created_at = now_iso()
+        logger.info(f"Generated task ID: {task_id}")
 
         task = {
             "id": task_id,
@@ -200,10 +227,13 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
 
         board_root = get_board_root()
         col_dir = board_root / "tasks" / column_id
+        logger.info(f"Creating task directory: {col_dir}")
         col_dir.mkdir(parents=True, exist_ok=True)
         path = col_dir / f"{task_id}.yaml"
+        logger.info(f"Saving task to: {path}")
         save_yaml(path, task)
-        logger.info(f"Successfully created task {task_id} via fallback method")
+        logger.info(f"✅ Successfully created task {task_id} via fallback method")
+        logger.info(f"Task file saved to: {path}")
         return task_id
 
 
@@ -243,14 +273,20 @@ def main() -> None:
     # New task form - improved with better error handling
     st.sidebar.header("New task")
     
+    logger.debug(f"Setting up form. Agents available: {[a['id'] for a in agents]}")
+    
     # Show any previous error/success message
     if "create_task_message" in st.session_state:
         msg_type = st.session_state.get("create_task_message_type", "info")
         msg = st.session_state["create_task_message"]
+        logger.info(f"Showing message: {msg_type} - {msg}")
         if msg_type == "success":
             st.sidebar.success(msg)
+            # Also show a toast notification
+            st.toast(msg, icon="✅")
         elif msg_type == "error":
             st.sidebar.error(msg)
+            st.toast(msg, icon="❌")
         # Clear message after showing
         del st.session_state["create_task_message"]
         del st.session_state["create_task_message_type"]
@@ -271,15 +307,25 @@ def main() -> None:
         submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
         
         if submitted:
-            logger.info(f"Form submitted: title='{title}', column={column_id}, agents={assignee_multiselect}")
+            logger.info("=" * 50)
+            logger.info("FORM SUBMITTED!")
+            logger.info(f"Title: '{title}'")
+            logger.info(f"Description: '{description}'")
+            logger.info(f"Column: {column_id}")
+            logger.info(f"Priority: {priority}")
+            logger.info(f"Tags: '{tag_str}'")
+            logger.info(f"Assignees: {assignee_multiselect}")
+            logger.info(f"Due date: '{due_date_str}'")
+            logger.info("=" * 50)
             
             if not title or not title.strip():
+                logger.warning("Form submitted but title is empty")
                 st.session_state["create_task_message"] = "⚠️ Title is required."
                 st.session_state["create_task_message_type"] = "error"
                 st.rerun()
             else:
                 try:
-                    logger.info(f"Attempting to create task: {title.strip()}")
+                    logger.info(f"Attempting to create task: '{title.strip()}'")
                     task_id = create_task(
                         title.strip(),
                         description.strip() if description else "",
@@ -289,20 +335,28 @@ def main() -> None:
                         tag_str.strip() if tag_str else "",
                         due_date_str.strip() or None,
                     )
-                    logger.info(f"Task created successfully: {task_id}")
-                    st.session_state["create_task_message"] = f"✅ Created task {task_id}"
+                    logger.info(f"✅ Task created successfully: {task_id}")
+                    success_msg = f"✅ Created task {task_id}"
+                    st.session_state["create_task_message"] = success_msg
                     st.session_state["create_task_message_type"] = "success"
+                    # Show immediate confirmation
+                    st.toast(success_msg, icon="✅")
+                    logger.info("Triggering rerun after successful task creation")
                     st.rerun()
                 except Exception as e:
                     error_msg = str(e)
-                    logger.error(f"Failed to create task: {error_msg}", exc_info=True)
+                    logger.error(f"❌ Failed to create task: {error_msg}", exc_info=True)
                     st.session_state["create_task_message"] = f"❌ Error: {error_msg}"
                     st.session_state["create_task_message_type"] = "error"
+                    st.toast(f"Error: {error_msg}", icon="❌")
                     # Store full error for debugging
                     st.session_state["create_task_error_details"] = str(e)
                     import traceback
                     st.session_state["create_task_traceback"] = traceback.format_exc()
+                    logger.error(f"Full traceback:\n{st.session_state['create_task_traceback']}")
                     st.rerun()
+        else:
+            logger.debug("Form not submitted (waiting for user input)")
     
     # Show error details if available
     if "create_task_error_details" in st.session_state:
