@@ -17,7 +17,7 @@ DEFAULT_AGENTS = {
 }
 
 DEFAULT_BOARD = {
-    "board_name": "AI Company Board",
+    "board_name": "CrewKan Board",
     "version": 1,
     "columns": DEFAULT_COLUMNS,
     "settings": {
@@ -56,8 +56,8 @@ def main():
     parser.add_argument(
         "--root",
         type=str,
-        default="ai_board",
-        help="Root directory for the board (default: ai_board)",
+        default="crewkan_board",
+        help="Root directory for the board (default: crewkan_board)",
     )
     parser.add_argument(
         "--with-sample-agents",

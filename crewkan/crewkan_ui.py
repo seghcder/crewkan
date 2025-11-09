@@ -8,7 +8,7 @@ import uuid
 import os
 
 # Adjust or make this a config/ENV var
-BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "ai_board")).resolve()
+BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")).resolve()
 
 
 def now_iso():

@@ -419,8 +419,8 @@ def build_parser():
     parser.add_argument(
         "--root",
         type=str,
-        default="ai_board",
-        help="Root directory for the board (default: ai_board)",
+        default="crewkan_board",
+        help="Root directory for the board (default: crewkan_board)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
