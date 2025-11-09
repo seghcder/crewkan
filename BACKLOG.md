@@ -5,10 +5,10 @@ Items to make CrewKan production-ready.
 ## High Priority
 
 ### Testing & Quality
-- [ ] Achieve 90%+ test coverage (currently using simulator-based coverage)
-- [ ] Add unit tests for edge cases (not just simulation)
-- [ ] Add integration tests for CLI commands
-- [ ] Add end-to-end tests for Streamlit UI
+- [ ] Achieve 90%+ test coverage (currently 54%, using simulator-based coverage)
+- [x] Add unit tests for edge cases (test_coverage_comprehensive.py covers many edge cases)
+- [x] Add integration tests for CLI commands (test_coverage_comprehensive.py)
+- [x] Add end-to-end tests for Streamlit UI (Playwright tests in test_streamlit_ui_playwright.py)
 - [ ] Set up CI/CD pipeline (GitHub Actions / GitLab CI)
 - [ ] Add linting (ruff, black, mypy)
 - [ ] Add pre-commit hooks
@@ -67,8 +67,8 @@ Items to make CrewKan production-ready.
 - [ ] Add board registry query tool
 - [ ] Add task search tool
 - [ ] Add board summarization tool
-- [ ] Example agent implementations
-- [ ] Agent orchestration patterns
+- [x] Example agent implementations (LangGraph CEO delegation example in examples/)
+- [x] Agent orchestration patterns (CEO delegating to workers, event-based notifications)
 
 ## Low Priority
 
@@ -87,7 +87,7 @@ Items to make CrewKan production-ready.
 - [ ] Encryption at rest for sensitive data
 
 ### Observability
-- [ ] Structured logging
+- [x] Structured logging (logging_config.py with file and console handlers)
 - [ ] Metrics collection (Prometheus)
 - [ ] Health check endpoints
 - [ ] Performance monitoring
