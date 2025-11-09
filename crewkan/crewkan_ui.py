@@ -113,10 +113,16 @@ def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> No
 
 def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
     """Create a task using BoardClient for proper updates."""
+    logger.info(f"create_task called: title={title[:50]}, column={column_id}, agents={assignee_ids}")
+    
     try:
         # Use BoardClient for proper task creation
         agents = load_agents()
-        default_agent = agents[0]["id"] if agents else "ui"
+        if not agents:
+            raise RuntimeError("No agents found in board. Please create at least one agent first.")
+        
+        default_agent = agents[0]["id"]
+        logger.info(f"Using agent: {default_agent}")
         
         client = BoardClient(BOARD_ROOT, default_agent)
         task_id = client.create_task(
@@ -128,11 +134,11 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
             tags=[t.strip() for t in tags.split(",") if t.strip()] if tags else [],
             due_date=due_date_str or None,
         )
-        logger.info(f"Created task {task_id} via UI")
+        logger.info(f"Successfully created task {task_id} via BoardClient")
         return task_id
     except Exception as e:
         # Fallback to direct creation
-        logger.warning(f"BoardClient create_task failed, using fallback: {e}")
+        logger.warning(f"BoardClient create_task failed, using fallback: {e}", exc_info=True)
         board = load_board()
         if not board:
             raise RuntimeError("Cannot create task: board not loaded")
@@ -167,6 +173,7 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
         col_dir.mkdir(parents=True, exist_ok=True)
         path = col_dir / f"{task_id}.yaml"
         save_yaml(path, task)
+        logger.info(f"Successfully created task {task_id} via fallback method")
         return task_id
 
 
@@ -200,27 +207,46 @@ def main() -> None:
     col_filter_options = ["(all)"] + col_ids
     selected_column_filter = st.sidebar.selectbox("Filter by column", col_filter_options)
 
-    # New task form
+    # New task form - improved with better error handling
     st.sidebar.header("New task")
-
+    
+    # Show any previous error/success message
+    if "create_task_message" in st.session_state:
+        msg_type = st.session_state.get("create_task_message_type", "info")
+        msg = st.session_state["create_task_message"]
+        if msg_type == "success":
+            st.sidebar.success(msg)
+        elif msg_type == "error":
+            st.sidebar.error(msg)
+        # Clear message after showing
+        del st.session_state["create_task_message"]
+        del st.session_state["create_task_message_type"]
+    
     with st.sidebar.form("new_task_form", clear_on_submit=True):
-        title = st.text_input("Title", key="new_task_title")
+        title = st.text_input("Title *", key="new_task_title")
         description = st.text_area("Description", height=100, key="new_task_desc")
         column_id = st.selectbox("Column", col_ids, key="new_task_column")
         priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="new_task_priority")
         tag_str = st.text_input("Tags (comma separated)", key="new_task_tags")
         assignee_multiselect = st.multiselect(
             "Assignees",
-            [a["id"] for a in agents],
+            [a["id"] for a in agents] if agents else [],
             key="new_task_assignees",
         )
         due_date_str = st.text_input("Due date (optional text)", value="", key="new_task_due")
-        submitted = st.form_submit_button("Create task")
+        
+        submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
+        
         if submitted:
+            logger.info(f"Form submitted: title='{title}', column={column_id}, agents={assignee_multiselect}")
+            
             if not title or not title.strip():
-                st.error("Title is required.")
+                st.session_state["create_task_message"] = "⚠️ Title is required."
+                st.session_state["create_task_message_type"] = "error"
+                st.rerun()
             else:
                 try:
+                    logger.info(f"Attempting to create task: {title.strip()}")
                     task_id = create_task(
                         title.strip(),
                         description.strip() if description else "",
@@ -230,12 +256,29 @@ def main() -> None:
                         tag_str.strip() if tag_str else "",
                         due_date_str.strip() or None,
                     )
-                    st.success(f"Created task {task_id}")
+                    logger.info(f"Task created successfully: {task_id}")
+                    st.session_state["create_task_message"] = f"✅ Created task {task_id}"
+                    st.session_state["create_task_message_type"] = "success"
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error creating task: {e}")
-                    import logging
-                    logging.exception("Failed to create task")
+                    error_msg = str(e)
+                    logger.error(f"Failed to create task: {error_msg}", exc_info=True)
+                    st.session_state["create_task_message"] = f"❌ Error: {error_msg}"
+                    st.session_state["create_task_message_type"] = "error"
+                    # Store full error for debugging
+                    st.session_state["create_task_error_details"] = str(e)
+                    import traceback
+                    st.session_state["create_task_traceback"] = traceback.format_exc()
+                    st.rerun()
+    
+    # Show error details if available
+    if "create_task_error_details" in st.session_state:
+        with st.sidebar.expander("Error details", expanded=False):
+            st.code(st.session_state.get("create_task_traceback", "No traceback available"))
+        # Clear after showing
+        del st.session_state["create_task_error_details"]
+        if "create_task_traceback" in st.session_state:
+            del st.session_state["create_task_traceback"]
 
     # Load tasks and filter
     tasks_by_column = {cid: [] for cid in col_ids}
