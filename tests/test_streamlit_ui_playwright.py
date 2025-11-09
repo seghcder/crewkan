@@ -92,29 +92,27 @@ def streamlit_server(test_board):
         process.kill()
 
 
-@pytest.mark.asyncio
-async def test_ui_loads(streamlit_server, page):
+def test_ui_loads(streamlit_server, page):
     """Test that the UI loads successfully."""
-    await page.goto(streamlit_server)
+    page.goto(streamlit_server)
     
     # Wait for title
-    title = await page.wait_for_selector("h1", timeout=10000)
-    title_text = await title.inner_text()
+    title = page.wait_for_selector("h1", timeout=10000)
+    title_text = title.inner_text()
     
     assert "AI Agent Task Board" in title_text or "CrewKan" in title_text
     print("✓ Test: UI loads - PASSED")
 
 
-@pytest.mark.asyncio
-async def test_create_task_via_ui(streamlit_server, page, test_board):
+def test_create_task_via_ui(streamlit_server, page, test_board):
     """Test creating a task through the UI."""
-    await page.goto(streamlit_server)
+    page.goto(streamlit_server)
     
     # Wait for page to load
-    await page.wait_for_selector("h1", timeout=10000)
+    page.wait_for_selector("h1", timeout=10000)
     
     # Wait for Streamlit to fully render
-    await page.wait_for_timeout(2000)
+    page.wait_for_timeout(2000)
     
     # Find the new task form in sidebar
     # Streamlit forms use specific structure - look for form elements
@@ -130,7 +128,7 @@ async def test_create_task_via_ui(streamlit_server, page, test_board):
     title_input = None
     for selector in title_selectors:
         try:
-            title_input = await page.wait_for_selector(selector, timeout=2000)
+            title_input = page.wait_for_selector(selector, timeout=2000)
             if title_input:
                 break
         except:
@@ -138,8 +136,8 @@ async def test_create_task_via_ui(streamlit_server, page, test_board):
     
     if title_input:
         # Fill in the form
-        await title_input.fill("Test Task from Playwright")
-        await page.wait_for_timeout(500)
+        title_input.fill("Test Task from Playwright")
+        page.wait_for_timeout(500)
         
         # Find description field
         desc_selectors = [
@@ -148,9 +146,9 @@ async def test_create_task_via_ui(streamlit_server, page, test_board):
             '.stTextArea textarea',
         ]
         for selector in desc_selectors:
-            desc_input = await page.query_selector(selector)
+            desc_input = page.query_selector(selector)
             if desc_input:
-                await desc_input.fill("This is a test task created via Playwright")
+                desc_input.fill("This is a test task created via Playwright")
                 break
         
         # Find and click submit button
@@ -161,10 +159,10 @@ async def test_create_task_via_ui(streamlit_server, page, test_board):
             'form button[type="submit"]',
         ]
         for selector in submit_selectors:
-            submit_button = await page.query_selector(selector)
+            submit_button = page.query_selector(selector)
             if submit_button:
-                await submit_button.click()
-                await page.wait_for_timeout(3000)  # Wait for form submission and rerun
+                submit_button.click()
+                page.wait_for_timeout(3000)  # Wait for form submission and rerun
                 
                 # Verify task was created in filesystem
                 from crewkan.board_core import BoardClient
@@ -180,37 +178,35 @@ async def test_create_task_via_ui(streamlit_server, page, test_board):
                 return
     
     # Fallback: Just verify page loaded and board exists
-    page_text = await page.inner_text("body")
+    page_text = page.inner_text("body")
     assert "todo" in page_text.lower() or "backlog" in page_text.lower(), "Board should be visible"
     print("⚠ Test: Create task via UI - Form not found, but page loaded")
 
 
-@pytest.mark.asyncio
-async def test_list_tasks(streamlit_server, page):
+def test_list_tasks(streamlit_server, page):
     """Test that tasks are displayed."""
-    await page.goto(streamlit_server)
+    page.goto(streamlit_server)
     
     # Wait for page to load
-    await page.wait_for_selector("h1", timeout=10000)
-    await page.wait_for_timeout(2000)  # Give Streamlit time to render
+    page.wait_for_selector("h1", timeout=10000)
+    page.wait_for_timeout(2000)  # Give Streamlit time to render
     
     # Check if any tasks are displayed
     # Streamlit displays tasks in columns
-    page_text = await page.inner_text("body")
+    page_text = page.inner_text("body")
     
     # Should have column headers at minimum
     assert "todo" in page_text.lower() or "backlog" in page_text.lower() or "doing" in page_text.lower()
     print("✓ Test: List tasks - PASSED")
 
 
-@pytest.mark.asyncio
-async def test_filesystem_change_detection(streamlit_server, page, test_board):
+def test_filesystem_change_detection(streamlit_server, page, test_board):
     """Test that UI detects filesystem changes from backend."""
-    await page.goto(streamlit_server)
+    page.goto(streamlit_server)
     
     # Wait for page to load
-    await page.wait_for_selector("h1", timeout=10000)
-    await page.wait_for_timeout(1000)
+    page.wait_for_selector("h1", timeout=10000)
+    page.wait_for_timeout(1000)
     
     # Create a task via backend (simulating agent action)
     from crewkan.board_core import BoardClient
@@ -222,14 +218,14 @@ async def test_filesystem_change_detection(streamlit_server, page, test_board):
     )
     
     # Wait for auto-refresh (UI polls every 2 seconds)
-    await page.wait_for_timeout(3000)
+    page.wait_for_timeout(3000)
     
     # Refresh page to see changes
-    await page.reload()
-    await page.wait_for_timeout(2000)
+    page.reload()
+    page.wait_for_timeout(2000)
     
     # Verify task appears
-    page_text = await page.inner_text("body")
+    page_text = page.inner_text("body")
     assert "Backend Task" in page_text or task_id in page_text
     print("✓ Test: Filesystem change detection - PASSED")
 
