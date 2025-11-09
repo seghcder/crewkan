@@ -1,0 +1,20 @@
+agents:
+- id: nuni
+  name: Nuni
+  role: Hospital AI Orchestrator
+  kind: ai
+  status: active
+  skills:
+  - infection_control
+  - analytics
+  metadata: {}
+- id: tau
+  name: Tau
+  role: Infrastructure Architect Agent
+  kind: ai
+  status: active
+  skills:
+  - infra_arch
+  - terraform
+  - devops
+  metadata: {}

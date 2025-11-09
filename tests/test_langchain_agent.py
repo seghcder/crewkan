@@ -38,15 +38,18 @@ if missing:
 
 try:
     from langchain_openai import AzureChatOpenAI
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-except ImportError:
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain.agents import create_agent
+    from langchain_core.runnables import RunnableLambda
+except ImportError as e:
+    print(f"Import error: {e}")
     print("Installing langchain dependencies...")
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", "langchain-openai", "langchain", "python-dotenv"])
     from langchain_openai import AzureChatOpenAI
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain.agents import create_agent
+    from langchain_core.runnables import RunnableLambda
 
 from crewkan.board_init import init_board
 from crewkan.board_langchain_tools import make_board_tools
@@ -97,35 +100,52 @@ def test_langchain_agent():
             temperature=0,
         )
 
-        # Create agent
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    "You are a CrewKan task management agent. "
-                    "Use the available tools to manage tasks on your board. "
-                    "Be concise and efficient.",
-                ),
-                MessagesPlaceholder("chat_history"),
-                ("user", "{input}"),
-                MessagesPlaceholder("agent_scratchpad"),
+        # Create agent using LangChain 1.0 API
+        # For LangChain 1.0, we'll use a simpler approach with tool calling
+        # The LLM can directly call tools when bound to them
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        
+        llm_with_tools = llm.bind_tools(tools)
+        
+        # Create a simple agent function
+        def agent_runner(user_input: str) -> str:
+            """Simple agent that uses LLM with tools."""
+            messages = [
+                SystemMessage(content="You are a CrewKan task management agent. Use the available tools to manage tasks on your board. Be concise and efficient."),
+                HumanMessage(content=user_input)
             ]
-        )
-
-        agent = create_openai_tools_agent(llm, tools, prompt)
-        executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
+            
+            response = llm_with_tools.invoke(messages)
+            
+            # Check if LLM wants to call tools
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                results = []
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.get("name", "")
+                    tool_args = tool_call.get("args", {})
+                    
+                    # Find and call the tool
+                    for tool in tools:
+                        if tool.name == tool_name:
+                            try:
+                                result = tool.invoke(tool_args)
+                                results.append(f"{tool_name}: {result}")
+                            except Exception as e:
+                                results.append(f"{tool_name} error: {e}")
+                
+                return "\n".join(results)
+            else:
+                return response.content if hasattr(response, 'content') else str(response)
+        
         # Test: Create a task
         print("\n=== Test: Create Task ===")
-        result = executor.invoke(
-            {"input": "Create a task titled 'Test LangChain Integration' in the todo column with high priority."}
-        )
-        print(f"Result: {result['output']}")
+        result = agent_runner("Create a task titled 'Test LangChain Integration' in the todo column with high priority.")
+        print(f"Result: {result}")
 
         # Test: List tasks
         print("\n=== Test: List My Tasks ===")
-        result = executor.invoke({"input": "List all my tasks in the todo column."})
-        print(f"Result: {result['output']}")
+        result = agent_runner("List all my tasks in the todo column.")
+        print(f"Result: {result}")
 
         # Test: Add comment
         print("\n=== Test: Add Comment ===")
@@ -137,10 +157,8 @@ def test_langchain_agent():
         tasks = json.loads(tasks_json)
         if tasks:
             task_id = tasks[0]["id"]
-            result = executor.invoke(
-                {"input": f"Add a comment to task {task_id} saying 'Working on LangChain integration test'."}
-            )
-            print(f"Result: {result['output']}")
+            result = agent_runner(f"Add a comment to task {task_id} saying 'Working on LangChain integration test'.")
+            print(f"Result: {result}")
 
         print("\n✓ LangChain agent test completed successfully!")
 
