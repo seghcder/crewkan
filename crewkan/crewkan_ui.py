@@ -112,39 +112,62 @@ def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> No
 
 
 def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
-    board = load_board()
-    prefix = board.get("settings", {}).get("task_filename_prefix", "T")
-    task_id: str = generate_task_id(prefix)
-    created_at = now_iso()
+    """Create a task using BoardClient for proper updates."""
+    try:
+        # Use BoardClient for proper task creation
+        agents = load_agents()
+        default_agent = agents[0]["id"] if agents else "ui"
+        
+        client = BoardClient(BOARD_ROOT, default_agent)
+        task_id = client.create_task(
+            title=title,
+            description=description or "",
+            column=column_id,
+            assignees=assignee_ids,
+            priority=priority or None,
+            tags=[t.strip() for t in tags.split(",") if t.strip()] if tags else [],
+            due_date=due_date_str or None,
+        )
+        logger.info(f"Created task {task_id} via UI")
+        return task_id
+    except Exception as e:
+        # Fallback to direct creation
+        logger.warning(f"BoardClient create_task failed, using fallback: {e}")
+        board = load_board()
+        if not board:
+            raise RuntimeError("Cannot create task: board not loaded")
+        prefix = board.get("settings", {}).get("task_filename_prefix", "T")
+        task_id: str = generate_task_id(prefix)
+        created_at = now_iso()
 
-    task = {
-        "id": task_id,
-        "title": title,
-        "description": description or "",
-        "status": column_id,
-        "column": column_id,
-        "priority": priority or board.get("settings", {}).get("default_priority", "medium"),
-        "tags": tags.split(",") if tags else [],
-        "assignees": assignee_ids,
-        "dependencies": [],
-        "created_at": created_at,
-        "updated_at": created_at,
-        "due_date": due_date_str or None,
-        "history": [
-            {
-                "at": created_at,
-                "by": "ui",
-                "event": "created",
-                "details": f"Task created in column {column_id}",
-            }
-        ],
-    }
+        task = {
+            "id": task_id,
+            "title": title,
+            "description": description or "",
+            "status": column_id,
+            "column": column_id,
+            "priority": priority or board.get("settings", {}).get("default_priority", "medium"),
+            "tags": [t.strip() for t in tags.split(",") if t.strip()] if tags else [],
+            "assignees": assignee_ids,
+            "dependencies": [],
+            "created_at": created_at,
+            "updated_at": created_at,
+            "due_date": due_date_str or None,
+            "history": [
+                {
+                    "at": created_at,
+                    "by": "ui",
+                    "event": "created",
+                    "details": f"Task created in column {column_id}",
+                }
+            ],
+        }
 
-    col_dir = BOARD_ROOT / "tasks" / column_id
-    col_dir.mkdir(parents=True, exist_ok=True)
-    path = col_dir / f"{task_id}.yaml"
-    save_yaml(path, task)
-    return task_id
+        col_dir = BOARD_ROOT / "tasks" / column_id
+        col_dir.mkdir(parents=True, exist_ok=True)
+        path = col_dir / f"{task_id}.yaml"
+        save_yaml(path, task)
+        return task_id
 
 
 def main() -> None:
