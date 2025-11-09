@@ -4,9 +4,14 @@ import streamlit as st
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 import os
+import sys
 import time
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
+from crewkan.board_core import BoardClient, BoardError
 
 # Adjust or make this a config/ENV var
 BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")).resolve()
@@ -40,44 +45,66 @@ def iter_tasks():
 
 
 def move_task(task_data: Dict[str, Any], task_path: Path, new_column: str) -> None:
-    old_column = task_data.get("column", task_data.get("status"))
-    if old_column == new_column:
-        return
+    """Move task using BoardClient for proper updates."""
+    try:
+        # Use BoardClient for proper move
+        board_root = task_path.parent.parent.parent
+        agents = load_agents()
+        default_agent = agents[0]["id"] if agents else "ui"
+        
+        client = BoardClient(board_root, default_agent)
+        client.move_task(task_data["id"], new_column)
+    except Exception as e:
+        # Fallback to direct update
+        old_column = task_data.get("column", task_data.get("status"))
+        if old_column == new_column:
+            return
 
-    task_data["column"] = new_column
-    task_data["status"] = new_column
-    task_data["updated_at"] = now_iso()
-    task_data.setdefault("history", []).append(
-        {
-            "at": task_data["updated_at"],
-            "by": "ui",
-            "event": "moved",
-            "details": f"{old_column} -> {new_column}",
-        }
-    )
+        task_data["column"] = new_column
+        task_data["status"] = new_column
+        task_data["updated_at"] = now_iso()
+        task_data.setdefault("history", []).append(
+            {
+                "at": task_data["updated_at"],
+                "by": "ui",
+                "event": "moved",
+                "details": f"{old_column} -> {new_column}",
+            }
+        )
 
-    new_dir = BOARD_ROOT / "tasks" / new_column
-    new_dir.mkdir(parents=True, exist_ok=True)
-    new_path = new_dir / task_path.name
-    save_yaml(new_path, task_data)
-    if new_path != task_path:
-        task_path.unlink()
+        new_dir = BOARD_ROOT / "tasks" / new_column
+        new_dir.mkdir(parents=True, exist_ok=True)
+        new_path = new_dir / task_path.name
+        save_yaml(new_path, task_data)
+        if new_path != task_path:
+            task_path.unlink()
 
 
 def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> None:
-    assignees = set(task_data.get("assignees") or [])
-    assignees.add(agent_id)
-    task_data["assignees"] = sorted(assignees)
-    task_data["updated_at"] = now_iso()
-    task_data.setdefault("history", []).append(
-        {
-            "at": task_data["updated_at"],
-            "by": "ui",
-            "event": "assigned",
-            "details": f"Assigned {agent_id}",
-        }
-    )
-    save_yaml(task_path, task_data)
+    """Assign task using BoardClient for proper updates."""
+    try:
+        # Use BoardClient for proper assignment
+        board_root = task_path.parent.parent.parent
+        agents = load_agents()
+        default_agent = agents[0]["id"] if agents else "ui"
+        
+        client = BoardClient(board_root, default_agent)
+        client.reassign_task(task_data["id"], agent_id, keep_existing=True)
+    except Exception as e:
+        # Fallback to direct update
+        assignees = set(task_data.get("assignees") or [])
+        assignees.add(agent_id)
+        task_data["assignees"] = sorted(assignees)
+        task_data["updated_at"] = now_iso()
+        task_data.setdefault("history", []).append(
+            {
+                "at": task_data["updated_at"],
+                "by": "ui",
+                "event": "assigned",
+                "details": f"Assigned {agent_id}",
+            }
+        )
+        save_yaml(task_path, task_data)
 
 
 def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
@@ -215,7 +242,9 @@ def main() -> None:
                 tags = ", ".join(task.get("tags") or [])
                 due = task.get("due_date") or ""
 
-                with st.expander(f"{tid}: {title}", expanded=False):
+                # Display task - filename in dropdown, not in top description
+                with st.expander(f"{title}", expanded=False):
+                    st.caption(f"ID: {tid} | File: {path.name}")
                     st.markdown(f"**Priority:** {priority}")
                     st.markdown(f"**Assignees:** {assignees or '-'}")
                     st.markdown(f"**Tags:** {tags or '-'}")
@@ -225,6 +254,55 @@ def main() -> None:
                     if desc:
                         st.markdown("---")
                         st.markdown(desc)
+
+                    # Rename task
+                    new_title = st.text_input(
+                        "Rename task",
+                        value=title,
+                        key=f"rename_input_{tid}",
+                    )
+                    if st.button("Rename", key=f"rename_btn_{tid}"):
+                        if new_title and new_title != title:
+                            try:
+                                board_root = path.parent.parent.parent
+                                agents = load_agents()
+                                default_agent = agents[0]["id"] if agents else "ui"
+                                client = BoardClient(board_root, default_agent)
+                                client.update_task_field(tid, "title", new_title)
+                                st.success(f"Renamed to: {new_title}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error renaming: {e}")
+
+                    # Update tags
+                    new_tags_str = st.text_input(
+                        "Tags (comma separated)",
+                        value=tags,
+                        key=f"tags_input_{tid}",
+                    )
+                    if st.button("Update Tags", key=f"tags_btn_{tid}"):
+                        if new_tags_str != tags:
+                            try:
+                                board_root = path.parent.parent.parent
+                                agents = load_agents()
+                                default_agent = agents[0]["id"] if agents else "ui"
+                                client = BoardClient(board_root, default_agent)
+                                # Tags need to be updated as a list
+                                new_tags = [t.strip() for t in new_tags_str.split(",") if t.strip()] if new_tags_str else []
+                                # Update task directly for tags (update_task_field expects string)
+                                task["tags"] = new_tags
+                                task["updated_at"] = now_iso()
+                                task.setdefault("history", []).append({
+                                    "at": task["updated_at"],
+                                    "by": "ui",
+                                    "event": "tags_updated",
+                                    "details": f"Tags: {', '.join(new_tags)}",
+                                })
+                                save_yaml(path, task)
+                                st.success("Tags updated")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error updating tags: {e}")
 
                     # Move task
                     target_col = st.selectbox(
@@ -247,6 +325,25 @@ def main() -> None:
                         if assign_to != "(none)":
                             assign_task(task, path, assign_to)
                             st.rerun()
+                    
+                    # Add comment
+                    comment_text = st.text_area(
+                        "Add comment",
+                        key=f"comment_input_{tid}",
+                        height=60,
+                    )
+                    if st.button("Add Comment", key=f"comment_btn_{tid}"):
+                        if comment_text.strip():
+                            try:
+                                board_root = path.parent.parent.parent
+                                agents = load_agents()
+                                default_agent = agents[0]["id"] if agents else "ui"
+                                client = BoardClient(board_root, default_agent)
+                                client.add_comment(tid, comment_text.strip())
+                                st.success("Comment added")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error adding comment: {e}")
 
 
 if __name__ == "__main__":
