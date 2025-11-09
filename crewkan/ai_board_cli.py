@@ -104,6 +104,7 @@ def cmd_add_agent(args):
         "id": args.id,
         "name": args.name or args.id,
         "role": args.role or "",
+        "kind": args.kind or "ai",
         "status": "active",
         "skills": [],
         "metadata": {},
@@ -432,6 +433,7 @@ def build_parser():
     p_add_agent.add_argument("--id", required=True, help="Agent id (stable)")
     p_add_agent.add_argument("--name", help="Agent name")
     p_add_agent.add_argument("--role", help="Agent role")
+    p_add_agent.add_argument("--kind", choices=["ai", "human"], default="ai", help="Agent kind (ai or human)")
     p_add_agent.set_defaults(func=cmd_add_agent)
 
     p_remove_agent = sub.add_parser("remove-agent", help="Remove an agent")

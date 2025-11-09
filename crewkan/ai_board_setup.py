@@ -24,6 +24,7 @@ DEFAULT_BOARD = {
         "default_priority": "medium",
         "task_filename_prefix": "T",
         "timezone": "UTC",
+        "default_superagent_id": None,
     },
 }
 
@@ -83,6 +84,7 @@ def main():
                     "id": "nuni",
                     "name": "Nuni",
                     "role": "Hospital AI Orchestrator",
+                    "kind": "ai",
                     "status": "active",
                     "skills": ["infection_control", "analytics"],
                     "metadata": {},
@@ -91,6 +93,7 @@ def main():
                     "id": "tau",
                     "name": "Tau",
                     "role": "Infrastructure Architect Agent",
+                    "kind": "ai",
                     "status": "active",
                     "skills": ["infra_arch", "terraform", "devops"],
                     "metadata": {},
