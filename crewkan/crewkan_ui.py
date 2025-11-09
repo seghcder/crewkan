@@ -17,20 +17,27 @@ from crewkan.board_core import BoardClient, BoardError
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Adjust or make this a config/ENV var
-BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")).resolve()
+# Get board root from environment variable (re-evaluated each time)
+def get_board_root() -> Path:
+    """Get the board root directory from environment or default."""
+    board_root = os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")
+    return Path(board_root).resolve()
+
+BOARD_ROOT = get_board_root()  # Initial value, but functions should call get_board_root()
 
 
 def load_board():
-    board = load_yaml(BOARD_ROOT / "board.yaml")
+    board_root = get_board_root()
+    board = load_yaml(board_root / "board.yaml")
     if not board:
-        st.error(f"No board.yaml found in {BOARD_ROOT}")
+        st.error(f"No board.yaml found in {board_root}")
         st.stop()
     return board
 
 
 def load_agents():
-    agents = load_yaml(BOARD_ROOT / "agents" / "agents.yaml", default={"agents": []})
+    board_root = get_board_root()
+    agents = load_yaml(board_root / "agents" / "agents.yaml", default={"agents": []})
     if "agents" not in agents:
         agents["agents"] = []
     return agents["agents"]
@@ -39,7 +46,8 @@ def load_agents():
 
 
 def iter_tasks():
-    tasks_root = BOARD_ROOT / "tasks"
+    board_root = get_board_root()
+    tasks_root = board_root / "tasks"
     if not tasks_root.exists():
         return
     for path in tasks_root.rglob("*.yaml"):
@@ -76,7 +84,8 @@ def move_task(task_data: Dict[str, Any], task_path: Path, new_column: str) -> No
             }
         )
 
-        new_dir = BOARD_ROOT / "tasks" / new_column
+        board_root = get_board_root()
+        new_dir = board_root / "tasks" / new_column
         new_dir.mkdir(parents=True, exist_ok=True)
         new_path = new_dir / task_path.name
         save_yaml(new_path, task_data)
@@ -124,7 +133,8 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
         default_agent = agents[0]["id"]
         logger.info(f"Using agent: {default_agent}")
         
-        client = BoardClient(BOARD_ROOT, default_agent)
+        board_root = get_board_root()
+        client = BoardClient(board_root, default_agent)
         task_id = client.create_task(
             title=title,
             description=description or "",
@@ -169,7 +179,8 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
             ],
         }
 
-        col_dir = BOARD_ROOT / "tasks" / column_id
+        board_root = get_board_root()
+        col_dir = board_root / "tasks" / column_id
         col_dir.mkdir(parents=True, exist_ok=True)
         path = col_dir / f"{task_id}.yaml"
         save_yaml(path, task)
