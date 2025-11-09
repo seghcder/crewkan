@@ -54,8 +54,19 @@ def run_coverage_comprehensive():
             default_superagent_id="test-agent",
         )
         print("  ✓ Board initialization tested")
+        
+        # Test init_board with existing board (should not error)
+        init_board(
+            test_board,
+            board_id="coverage-test-2",
+            board_name="Coverage Test Board 2",
+            owner_agent_id="test-agent",
+            default_superagent_id="test-agent",
+        )
     except Exception as e:
         print(f"  ✗ Board initialization error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if test_board.exists():
             shutil.rmtree(temp_dir)
@@ -117,7 +128,7 @@ def run_coverage_comprehensive():
         # Test add duplicate agent (should skip)
         cmd_add_agent(args)
         
-        # Test new task
+        # Test new task with BoardClient
         args = MockArgs(
             root=str(test_board),
             title="Coverage Test Task",
@@ -130,6 +141,47 @@ def run_coverage_comprehensive():
             id=None,
         )
         cmd_new_task(args)
+        
+        # Test new task with fallback (no agents)
+        empty_board = temp_dir / "empty_board_cli"
+        init_board(empty_board, "empty", "Empty", "test-agent", "test-agent")
+        # Remove agents to trigger fallback
+        agents_file = empty_board / "agents" / "agents.yaml"
+        if agents_file.exists():
+            agents_file.unlink()
+        
+        args = MockArgs(
+            root=str(empty_board),
+            title="Fallback Task",
+            description="Test",
+            column="todo",
+            assignee=[],
+            priority="high",
+            tags="test",
+            due_date=None,
+            id="TEST-123",
+        )
+        try:
+            cmd_new_task(args)
+        except RuntimeError:
+            pass  # Expected - no agents
+        
+        # Test new task with invalid column
+        args = MockArgs(
+            root=str(test_board),
+            title="Invalid Column Task",
+            description="Test",
+            column="invalid_column",
+            assignee=["test-agent"],
+            priority="high",
+            tags="test",
+            due_date=None,
+            id=None,
+        )
+        try:
+            cmd_new_task(args)
+        except RuntimeError:
+            pass  # Expected
         
         # Test find_task_file
         task_files = list((test_board / "tasks").rglob("*.yaml"))
@@ -145,15 +197,38 @@ def run_coverage_comprehensive():
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, column="doing")
             cmd_move_task(args)
+            
+            # Test move task with invalid column
+            args = MockArgs(root=str(test_board), task_id=task_id, column="invalid")
+            try:
+                cmd_move_task(args)
+            except RuntimeError:
+                pass  # Expected
         
         # Test assign task
         if task_files:
-            args = MockArgs(root=str(test_board), task_id=task_id, assignee="test-agent")
+            args = MockArgs(root=str(test_board), task_id=task_id, assignee=["test-agent"])
             cmd_assign_task(args)
+            
+            # Test assign task with nonexistent task
+            args = MockArgs(root=str(test_board), task_id="nonexistent", assignee=["test-agent"])
+            try:
+                cmd_assign_task(args)
+            except RuntimeError:
+                pass  # Expected
         
         # Test validate
         args = MockArgs(root=str(test_board))
         cmd_validate(args)
+        
+        # Test validate with invalid board
+        invalid_board = temp_dir / "invalid_board"
+        invalid_board.mkdir()
+        args = MockArgs(root=str(invalid_board))
+        try:
+            cmd_validate(args)
+        except RuntimeError:
+            pass  # Expected
         
         # Test list tasks with filters
         args = MockArgs(root=str(test_board), column="todo", agent=None)
@@ -162,11 +237,35 @@ def run_coverage_comprehensive():
         args = MockArgs(root=str(test_board), column=None, agent="test-agent")
         cmd_list_tasks(args)
         
+        # Test list tasks with invalid column
+        args = MockArgs(root=str(test_board), column="invalid", agent=None)
+        try:
+            cmd_list_tasks(args)
+        except RuntimeError:
+            pass  # Expected
+        
+        # Test list tasks with no tasks
+        empty_board = temp_dir / "empty_board_list"
+        init_board(empty_board, "empty", "Empty", "test-agent", "test-agent")
+        args = MockArgs(root=str(empty_board), column=None, agent=None)
+        cmd_list_tasks(args)
+        
         # Test start/stop task (if task exists)
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent")
             cmd_start_task(args)
             cmd_stop_task(args)
+            
+            # Test start/stop with nonexistent task
+            args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent")
+            try:
+                cmd_start_task(args)
+            except RuntimeError:
+                pass  # Expected
+            try:
+                cmd_stop_task(args)
+            except RuntimeError:
+                pass  # Expected
         
         # Test symlink functions
         test_link = test_board / "test_link"
@@ -188,6 +287,20 @@ def run_coverage_comprehensive():
             "metadata": {},
         })
         save_agents(test_board, agents_data)
+        
+        # Test build_parser and main
+        from crewkan.crewkan_cli import build_parser, main
+        parser = build_parser()
+        
+        # Test main with help
+        old_argv = sys.argv
+        sys.argv = ["crewkan_cli", "--help"]
+        try:
+            main()
+        except SystemExit:
+            pass  # Expected for --help
+        finally:
+            sys.argv = old_argv
         
         print("  ✓ CLI functions tested")
     except Exception as e:
@@ -440,6 +553,102 @@ def run_coverage_comprehensive():
         # Test list with filters
         client.list_my_tasks(column="todo")
         client.list_my_tasks(column="doing", limit=5)
+        
+        # Test reassign with to_superagent
+        board_data = load_yaml(test_board / "board.yaml")
+        board_data["settings"]["default_superagent_id"] = "test-agent"
+        save_yaml(test_board / "board.yaml", board_data)
+        client2 = BoardClient(test_board, "test-agent")
+        if task_id:
+            client2.reassign_task(task_id, to_superagent=True)
+        
+        # Test reassign error paths
+        try:
+            client2.reassign_task("nonexistent", "test-agent")
+        except BoardError:
+            pass
+        
+        # Test update_task_field with tags (string)
+        if task_id:
+            client2.update_task_field(task_id, "tags", "tag1,tag2,tag3")
+        
+        # Test update_task_field with tags (list)
+        if task_id:
+            client2.update_task_field(task_id, "tags", ["tag4", "tag5"])
+        
+        # Test update_task_field error (invalid field)
+        try:
+            client2.update_task_field(task_id, "invalid_field", "value")
+        except BoardError:
+            pass
+        
+        # Test move_task error (invalid column)
+        try:
+            client2.move_task(task_id, "invalid_column")
+        except BoardError:
+            pass
+        
+        # Test get_agent and list_agents
+        agent = client2.get_agent("test-agent")
+        agents = client2.list_agents()
+        
+        # Test get_default_superagent_id
+        superagent = client2.get_default_superagent_id()
+        
+        # Test workspace symlinks (if workspace exists)
+        workspace_root = test_board / "workspaces" / "test-agent" / "todo"
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        if task_id:
+            task_file = test_board / "tasks" / "doing" / f"{task_id}.yaml"
+            if task_file.exists():
+                symlink = workspace_root / f"{task_id}.yaml"
+                symlink.symlink_to(task_file)
+                # Move task to trigger workspace update
+                client2.move_task(task_id, "backlog")
+        
+        # Test create_task with invalid column
+        try:
+            client2.create_task("Test", column="invalid_column")
+        except BoardError:
+            pass
+        
+        # Test create_task with invalid assignee
+        try:
+            client2.create_task("Test", assignees=["nonexistent-agent"])
+        except BoardError:
+            pass
+        
+        # Test reassign with no superagent configured
+        board_data = load_yaml(test_board / "board.yaml")
+        board_data["settings"]["default_superagent_id"] = None
+        save_yaml(test_board / "board.yaml", board_data)
+        client3 = BoardClient(test_board, "test-agent")
+        try:
+            if task_id:
+                client3.reassign_task(task_id, to_superagent=True)
+        except BoardError:
+            pass
+        
+        # Test reassign with no new_assignee_id and to_superagent=False
+        try:
+            if task_id:
+                client3.reassign_task(task_id, to_superagent=False)
+        except BoardError:
+            pass
+        
+        # Test reassign with invalid assignee
+        try:
+            if task_id:
+                client3.reassign_task(task_id, "nonexistent-agent")
+        except BoardError:
+            pass
+        
+        # Test update_task_field with invalid tags type
+        try:
+            if task_id:
+                client3.update_task_field(task_id, "tags", 123)  # Invalid type
+        except BoardError:
+            pass
         
         print("  ✓ BoardClient operations tested")
     except Exception as e:
