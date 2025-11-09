@@ -291,7 +291,7 @@ def main() -> None:
         del st.session_state["create_task_message"]
         del st.session_state["create_task_message_type"]
     
-    with st.sidebar.form("new_task_form", clear_on_submit=False):
+    with st.sidebar.form("new_task_form", clear_on_submit=True):
         title = st.text_input("Title *", key="new_task_title")
         description = st.text_area("Description", height=100, key="new_task_desc")
         column_id = st.selectbox("Column", col_ids, key="new_task_column")
@@ -306,14 +306,10 @@ def main() -> None:
         
         submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
         
-        # Check both the button return value and session state
-        form_submitter_key = "FormSubmitter:new_task_form-Create Task"
-        form_was_submitted = submitted or st.session_state.get(form_submitter_key, False)
-        
-        logger.debug(f"Form submission check: submitted={submitted}, form_submitter_key={form_submitter_key}, in_session_state={form_submitter_key in st.session_state}")
-        logger.debug(f"Form submitter value: {st.session_state.get(form_submitter_key, 'NOT FOUND')}")
-        
-        if form_was_submitted:
+        # Process form submission immediately when button is clicked
+        # With clear_on_submit=True, form values are cleared AFTER this block runs
+        # So we need to capture values before they're cleared
+        if submitted:
             logger.info("=" * 50)
             logger.info("FORM SUBMITTED!")
             logger.info(f"Title: '{title}'")
@@ -349,13 +345,7 @@ def main() -> None:
                     # Show immediate confirmation
                     st.toast(success_msg, icon="✅")
                     logger.info("Triggering rerun after successful task creation")
-                    # Clear the form submitter from session state
-                    if form_submitter_key in st.session_state:
-                        del st.session_state[form_submitter_key]
-                    # Clear form fields by clearing their keys
-                    for key in ["new_task_title", "new_task_desc", "new_task_tags", "new_task_due"]:
-                        if key in st.session_state:
-                            del st.session_state[key]
+                    # Form will be cleared automatically by clear_on_submit=True
                     st.rerun()
                 except Exception as e:
                     error_msg = str(e)
@@ -368,16 +358,8 @@ def main() -> None:
                     import traceback
                     st.session_state["create_task_traceback"] = traceback.format_exc()
                     logger.error(f"Full traceback:\n{st.session_state['create_task_traceback']}")
-                    # Clear form submitter
-                    if form_submitter_key in st.session_state:
-                        del st.session_state[form_submitter_key]
+                    # Form will be cleared automatically, but we rerun to show error
                     st.rerun()
-        else:
-            logger.debug("Form not submitted (waiting for user input)")
-            # Clear form submitter if it exists but we're not processing it
-            if form_submitter_key in st.session_state:
-                logger.debug(f"Found form submitter in session state but not processing. Clearing it.")
-                del st.session_state[form_submitter_key]
     
     # Show error details if available
     if "create_task_error_details" in st.session_state:
