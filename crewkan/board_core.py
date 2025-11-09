@@ -1,11 +1,15 @@
 # board_core.py
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import yaml
 
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class BoardError(Exception):
@@ -110,6 +114,7 @@ class BoardClient:
         return json.dumps(results, indent=2)
 
     def move_task(self, task_id: str, new_column: str) -> str:
+        logger.info(f"Moving task {task_id} to column {new_column} (agent: {self.agent_id})")
         """
         Move a task to another column.
         """
@@ -145,9 +150,11 @@ class BoardClient:
         # Optional: update workspace symlinks
         self._update_workspace_links(task_id, old_column, new_column)
 
+        logger.debug(f"Moved task {task_id} from {old_column} to {new_column}")
         return f"Moved task {task_id} from '{old_column}' to '{new_column}'."
 
     def update_task_field(self, task_id: str, field: str, value: str) -> str:
+        logger.info(f"Updating task {task_id} field {field} (agent: {self.agent_id})")
         """
         Update a simple top-level field (title, description, priority, due_date, tags).
         For tags, value should be comma-separated string.
@@ -183,6 +190,7 @@ class BoardClient:
         return f"Updated task {task_id} field '{field}' from '{old_value}' to '{task[field]}'."
 
     def add_comment(self, task_id: str, comment: str) -> str:
+        logger.info(f"Adding comment to task {task_id} (agent: {self.agent_id})")
         """
         Add a new comment event to the task history.
         """
@@ -206,6 +214,7 @@ class BoardClient:
         to_superagent: bool = False,
         keep_existing: bool = False,
     ) -> str:
+        logger.info(f"Reassigning task {task_id} to {new_assignee_id or 'superagent'} (agent: {self.agent_id})")
         """
         Reassign a task. If to_superagent is True, ignore new_assignee_id and
         reassign to the board's default superagent.
@@ -300,6 +309,7 @@ class BoardClient:
         col_dir.mkdir(parents=True, exist_ok=True)
         path = col_dir / f"{task_id}.yaml"
         save_yaml(path, task)
+        logger.debug(f"Created task {task_id} at {path}")
         return task_id
 
     # ------------------------------------------------------------------

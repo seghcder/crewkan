@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
+import logging
 from pathlib import Path
 import sys
 import yaml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 DEFAULT_COLUMNS = [
     {"id": "backlog", "name": "Backlog", "wip_limit": None},

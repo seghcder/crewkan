@@ -2,12 +2,16 @@
 
 import argparse
 import sys
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import yaml
 
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 from crewkan.board_core import BoardClient, BoardError
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 def load_board(root: Path) -> Dict[str, Any]:

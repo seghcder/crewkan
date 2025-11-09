@@ -6,12 +6,16 @@ from typing import Optional, List, Tuple, Dict, Any
 import os
 import sys
 import time
+import logging
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 from crewkan.board_core import BoardClient, BoardError
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Adjust or make this a config/ENV var
 BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")).resolve()
@@ -176,33 +180,39 @@ def main() -> None:
     # New task form
     st.sidebar.header("New task")
 
-    with st.sidebar.form("new_task_form"):
-        title = st.text_input("Title")
-        description = st.text_area("Description", height=100)
-        column_id = st.selectbox("Column", col_ids)
-        priority = st.selectbox("Priority", ["low", "medium", "high"], index=1)
-        tag_str = st.text_input("Tags (comma separated)")
+    with st.sidebar.form("new_task_form", clear_on_submit=True):
+        title = st.text_input("Title", key="new_task_title")
+        description = st.text_area("Description", height=100, key="new_task_desc")
+        column_id = st.selectbox("Column", col_ids, key="new_task_column")
+        priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="new_task_priority")
+        tag_str = st.text_input("Tags (comma separated)", key="new_task_tags")
         assignee_multiselect = st.multiselect(
             "Assignees",
             [a["id"] for a in agents],
+            key="new_task_assignees",
         )
-        due_date_str = st.text_input("Due date (optional text)", value="")
+        due_date_str = st.text_input("Due date (optional text)", value="", key="new_task_due")
         submitted = st.form_submit_button("Create task")
         if submitted:
-            if not title:
-                st.warning("Title is required.")
+            if not title or not title.strip():
+                st.error("Title is required.")
             else:
-                task_id = create_task(
-                    title,
-                    description,
-                    column_id,
-                    assignee_multiselect,
-                    priority,
-                    tag_str,
-                    due_date_str.strip() or None,
-                )
-                st.success(f"Created task {task_id}")
-                st.rerun()
+                try:
+                    task_id = create_task(
+                        title.strip(),
+                        description.strip() if description else "",
+                        column_id,
+                        assignee_multiselect,
+                        priority,
+                        tag_str.strip() if tag_str else "",
+                        due_date_str.strip() or None,
+                    )
+                    st.success(f"Created task {task_id}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error creating task: {e}")
+                    import logging
+                    logging.exception("Failed to create task")
 
     # Load tasks and filter
     tasks_by_column = {cid: [] for cid in col_ids}

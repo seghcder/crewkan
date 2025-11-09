@@ -1,8 +1,12 @@
 # board_registry.py
 
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from crewkan.utils import load_yaml, save_yaml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class BoardRegistry:

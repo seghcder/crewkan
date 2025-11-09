@@ -1,11 +1,15 @@
 # board_langchain_tools.py
 
+import logging
 from typing import Optional, List
 import json
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool, BaseTool
 
 from crewkan.board_core import BoardClient, BoardError
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------

@@ -1,9 +1,13 @@
 # board_init.py
 
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from crewkan.board_core import BoardError
 from crewkan.utils import load_yaml, save_yaml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_COLUMNS = [
