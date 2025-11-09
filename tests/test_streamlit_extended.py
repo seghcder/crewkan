@@ -185,21 +185,8 @@ def test_update_tags_via_ui(streamlit_server, page, test_board):
         tags=["original"],
     )
     
-    # Update tags
-    task_path = test_board / "tasks" / "todo" / f"{task_id}.yaml"
-    import yaml
-    with open(task_path) as f:
-        task = yaml.safe_load(f)
-    task["tags"] = ["original", "updated", "test"]
-    task["updated_at"] = client._now_iso()
-    task.setdefault("history", []).append({
-        "at": task["updated_at"],
-        "by": "nuni",
-        "event": "tags_updated",
-        "details": "Tags: original, updated, test",
-    })
-    with open(task_path, "w") as f:
-        yaml.safe_dump(task, f)
+    # Update tags via BoardClient
+    client.update_task_field(task_id, "tags", "original,updated,test")
     
     # Verify in backend
     tasks_json = client.list_my_tasks()
