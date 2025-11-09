@@ -1,17 +1,17 @@
 # Coverage Improvement Notes
 
-**Current Coverage: 39%** (Target: 50% → Final: 90%+)
+**Current Coverage: 47%** (Target: 50% → Final: 90%+)
 
 ## Coverage Status
 
-- `board_core.py`: **79%** ✅ (Good)
+- `board_core.py`: **81%** ✅ (Good)
 - `board_init.py`: **83%** ✅ (Good)
-- `board_langchain_tools.py`: **66%** ⚠️ (Needs improvement)
-- `board_registry.py`: **56%** ⚠️ (Needs improvement)
-- `crewkan_cli.py`: **26%** ❌ (Critical - needs direct function calls)
-- `crewkan_setup.py`: **0%** ❌ (Critical - needs direct function calls)
-- `crewkan_ui.py`: **14%** ❌ (Critical - needs direct function calls)
-- `logging_config.py`: **0%** (New module, needs testing)
+- `board_langchain_tools.py`: **82%** ✅ (Good)
+- `board_registry.py`: **81%** ✅ (Good)
+- `crewkan_cli.py`: **30%** ⚠️ (Needs more direct function calls)
+- `crewkan_setup.py`: **90%** ✅ (Excellent)
+- `crewkan_ui.py`: **23%** ⚠️ (Needs more direct function calls)
+- `logging_config.py`: **100%** ✅ (Perfect)
 - `utils.py`: **100%** ✅ (Perfect)
 
 ## Why Coverage is Low for CLI/UI/Setup
@@ -69,7 +69,17 @@ open htmlcov/index.html
 
 ## Target Progress
 
-- ✅ Current: **39%** (up from 25%)
-- ⏳ Next milestone: **50%** (in progress)
+- ✅ Current: **47%** (up from 39%)
+- ⏳ Next milestone: **50%** (almost there - need 3% more)
 - 🎯 Final target: **90%+**
+
+## Recent Improvements
+
+1. ✅ **Added logging_config tests**: Now 100% coverage
+2. ✅ **Added setup function tests**: Now 90% coverage
+3. ✅ **Added registry tests**: Now 81% coverage
+4. ✅ **Added LangChain tool tests**: Now 82% coverage
+5. ✅ **Added CLI utility function tests**: Improved from 26% to 30%
+6. ✅ **Added error path tests**: Testing exception handling
+7. ✅ **Added edge case tests**: Empty boards, nonexistent tasks, etc.
 
