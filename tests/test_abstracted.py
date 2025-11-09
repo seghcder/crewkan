@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from crewkan.board_core import BoardClient
 from crewkan.crewkan_setup import main as setup_main
+import crewkan.crewkan_setup
 
 
 class TestContext:
@@ -372,27 +373,29 @@ def run_test_suite(interface: TestInterface, ctx: TestContext, interface_name: s
     # Test 6: Add comment
     print("Test 6: Add comment")
     interface.add_comment(ctx, task_id, "Test comment from automated test")
-    # Verify comment by reading task file directly (list_my_tasks doesn't include full history)
-    import yaml
+    # Verify comment using get_comments API
     from crewkan.board_core import BoardClient
     client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-    # Find task file
-    tasks_dir = ctx.board_dir / "tasks"
-    task_file = None
-    for col_dir in tasks_dir.iterdir():
-        if col_dir.is_dir():
-            for tf in col_dir.glob(f"{task_id}.yaml"):
-                task_file = tf
-                break
-        if task_file:
-            break
-    assert task_file is not None, f"Task file not found for {task_id}"
-    with open(task_file) as f:
-        task_data = yaml.safe_load(f)
-    history = task_data.get("history", [])
-    comment_found = any("Test comment" in h.get("details", "") for h in history)
-    assert comment_found, "Comment not found in task history"
-    print(f"  ✓ Added comment")
+    comments = client.get_comments(task_id)
+    comment_found = any("Test comment" in c.get("details", "") for c in comments)
+    assert comment_found, "Comment not found via get_comments"
+    # Verify comment has comment_id
+    test_comment = next((c for c in comments if "Test comment" in c.get("details", "")), None)
+    assert test_comment is not None, "Test comment not found"
+    assert test_comment.get("comment_id", "").startswith("C-"), "Comment missing comment_id"
+    assert test_comment.get("by") is not None, "Comment missing 'by' field"
+    assert test_comment.get("at") is not None, "Comment missing 'at' field"
+    print(f"  ✓ Added comment with ID: {test_comment.get('comment_id')}")
+    
+    # Test 6.1: Get comments
+    print("Test 6.1: Get comments")
+    all_comments = client.get_comments(task_id)
+    assert len(all_comments) > 0, "No comments returned"
+    for comment in all_comments:
+        assert "details" in comment, "Comment missing details"
+        assert "by" in comment, "Comment missing 'by' field"
+        assert "at" in comment, "Comment missing 'at' field"
+    print(f"  ✓ Retrieved {len(all_comments)} comment(s)")
     
     print(f"\n✓ All tests passed via {interface_name}!")
 
@@ -406,7 +409,7 @@ def setup_test_context() -> TestContext:
     old_argv = sys.argv
     sys.argv = ["crewkan_setup", "--root", str(board_dir), "--with-sample-agents", "--force"]
     try:
-        setup_main()
+        crewkan.crewkan_setup.main()
     finally:
         sys.argv = old_argv
     

@@ -96,7 +96,10 @@ Each requirement is numbered and mapped to implementation evidence.
   - Test: Assign to agent, reassign, verify assignees
 - [ ] **R2.3.6** Add comment
   - Evidence: `crewkan/board_core.py` - `add_comment()`
-  - Test: Add comment, verify in history
+  - Test: Add comment, verify in history with comment_id
+- [ ] **R2.3.6.1** Get comments
+  - Evidence: `crewkan/board_core.py` - `get_comments()`
+  - Test: Get comments, verify comment_id, at, by, details present
 - [ ] **R2.3.7** Query tasks (by column, assignee, priority, tags)
   - Evidence: `crewkan/board_core.py` - `list_my_tasks()` with filters
   - Test: Query with various filters
@@ -131,7 +134,10 @@ Each requirement is numbered and mapped to implementation evidence.
   - Test: Update field, verify change
 - [ ] **R3.1.4** `add_comment()`
   - Evidence: `crewkan/board_core.py` - `add_comment()`
-  - Test: Add comment, verify in history
+  - Test: Add comment, verify in history with comment_id, returns comment_id
+- [ ] **R3.1.4.1** `get_comments()`
+  - Evidence: `crewkan/board_core.py` - `get_comments()`
+  - Test: Get comments, verify all fields including comment_id
 - [ ] **R3.1.5** `reassign_task()`
   - Evidence: `crewkan/board_core.py` - `reassign_task()`
   - Test: Reassign with various options

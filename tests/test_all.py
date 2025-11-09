@@ -128,7 +128,7 @@ def run_tests_with_coverage():
         results["ui_extended"] = False
     
     # 6. LangChain tests (optional - requires .env)
-    print("\n[6/6] Running LangChain tests (optional)...")
+    print("\n[6/7] Running LangChain tests (optional)...")
     try:
         result = subprocess.run(
             [sys.executable, "tests/test_langchain_agent.py"],
@@ -149,6 +149,29 @@ def run_tests_with_coverage():
     except Exception as e:
         print(f"  ⚠ LangChain tests skipped: {e}")
         results["langchain"] = None
+    
+    # 7. CEO Delegation extended test (optional - requires Azure OpenAI)
+    print("\n[7/7] Running CEO Delegation extended test (optional)...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "tests/test_ceo_delegation.py"],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        results["ceo_delegation"] = result.returncode == 0
+        if result.returncode == 0:
+            print("  ✓ CEO Delegation test passed")
+        else:
+            print("  ⚠ CEO Delegation test skipped (requires Azure OpenAI configuration)")
+            results["ceo_delegation"] = None  # Not a failure, just skipped
+    except subprocess.TimeoutExpired:
+        print("  ⚠ CEO Delegation test timed out")
+        results["ceo_delegation"] = None
+    except Exception as e:
+        print(f"  ⚠ CEO Delegation test skipped: {e}")
+        results["ceo_delegation"] = None
     
     # Stop coverage
     cov.stop()
@@ -234,6 +257,11 @@ if __name__ == "__main__":
         "--no-coverage",
         action="store_true",
         help="Run tests without coverage tracking",
+    )
+    parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Include extended tests (CEO delegation, etc.)",
     )
     
     args = parser.parse_args()

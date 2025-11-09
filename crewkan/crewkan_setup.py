@@ -21,6 +21,7 @@ DEFAULT_AGENTS = {
 }
 
 DEFAULT_BOARD = {
+    "board_id": "default-board",
     "board_name": "CrewKan Board",
     "version": 1,
     "columns": DEFAULT_COLUMNS,

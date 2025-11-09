@@ -206,6 +206,9 @@ For each board:
 * Comment:
 
   * Add free-text comments to `history`
+  * Each comment has a unique `comment_id` (format: `C-{uuid}`)
+  * Comments include: `comment_id`, `at` (timestamp), `by` (agent_id), `event` ("comment"), `details` (comment text)
+  * `get_comments(task_id)` returns list of all comments for a task
 * Query tasks:
 
   * By board, column, assignee, priority, tags
@@ -257,7 +260,8 @@ At minimum, the API must support:
 * `list_my_tasks(agent_id, board_id, column=None, limit=N)`
 * `move_task(agent_id, board_id, task_id, new_column)`
 * `update_task_field(agent_id, board_id, task_id, field, value)`
-* `add_comment(agent_id, board_id, task_id, comment)`
+* `add_comment(agent_id, board_id, task_id, comment)` - Returns comment_id
+* `get_comments(agent_id, board_id, task_id)` - Returns list of comments with comment_id, at, by, details
 * `reassign_task(agent_id, board_id, task_id, new_assignee_id=None, to_superagent=False, keep_existing=False)`
 * `create_task(agent_id, board_id, title, description, column, assignees, priority, tags, due_date)`
 * `start_work(agent_id, board_id, task_id, target_column=None)`
