@@ -2,30 +2,14 @@
 
 import streamlit as st
 from pathlib import Path
-import yaml
-from datetime import datetime, timezone
-import uuid
+from typing import Optional, List, Tuple, Dict, Any
 import os
+import time
+
+from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 
 # Adjust or make this a config/ENV var
 BOARD_ROOT = Path(os.getenv("CREWKAN_BOARD_ROOT", "crewkan_board")).resolve()
-
-
-def now_iso():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def load_yaml(path: Path, default=None):
-    if not path.exists():
-        return default
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def save_yaml(path: Path, data: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
 
 
 def load_board():
@@ -43,10 +27,6 @@ def load_agents():
     return agents["agents"]
 
 
-def generate_task_id(prefix="T"):
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    suffix = uuid.uuid4().hex[:6]
-    return f"{prefix}-{ts}-{suffix}"
 
 
 def iter_tasks():
@@ -59,7 +39,7 @@ def iter_tasks():
             yield path, data
 
 
-def move_task(task_data, task_path: Path, new_column: str):
+def move_task(task_data: Dict[str, Any], task_path: Path, new_column: str) -> None:
     old_column = task_data.get("column", task_data.get("status"))
     if old_column == new_column:
         return
@@ -84,7 +64,7 @@ def move_task(task_data, task_path: Path, new_column: str):
         task_path.unlink()
 
 
-def assign_task(task_data, task_path: Path, agent_id: str):
+def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> None:
     assignees = set(task_data.get("assignees") or [])
     assignees.add(agent_id)
     task_data["assignees"] = sorted(assignees)
@@ -100,10 +80,10 @@ def assign_task(task_data, task_path: Path, agent_id: str):
     save_yaml(task_path, task_data)
 
 
-def create_task(title, description, column_id, assignee_ids, priority, tags, due_date_str):
+def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
     board = load_board()
     prefix = board.get("settings", {}).get("task_filename_prefix", "T")
-    task_id = generate_task_id(prefix)
+    task_id: str = generate_task_id(prefix)
     created_at = now_iso()
 
     task = {
@@ -136,10 +116,21 @@ def create_task(title, description, column_id, assignee_ids, priority, tags, due
     return task_id
 
 
-def main():
+def main() -> None:
     st.set_page_config(page_title="AI Agent Board", layout="wide")
 
     st.title("AI Agent Task Board")
+
+    # Auto-refresh if filesystem changes detected
+    if "last_check" not in st.session_state:
+        st.session_state.last_check = time.time()
+    
+    # Check for filesystem changes (simple polling)
+    current_time = time.time()
+    if current_time - st.session_state.last_check > 2.0:  # Check every 2 seconds
+        st.session_state.last_check = current_time
+        # Trigger rerun if board files changed (Streamlit will handle this)
+        st.rerun()
 
     board = load_board()
     agents = load_agents()

@@ -14,9 +14,9 @@ Items to make CrewKan production-ready.
 - [ ] Add pre-commit hooks
 
 ### Code Quality
-- [ ] Consolidate duplicate utility functions (load_yaml, save_yaml, now_iso) into `crewkan/utils.py`
-- [ ] Refactor CLI to use BoardClient instead of duplicate code
-- [ ] Add type hints throughout codebase
+- [x] Consolidate duplicate utility functions (load_yaml, save_yaml, now_iso) into `crewkan/utils.py`
+- [x] Refactor CLI to use BoardClient instead of duplicate code (partially - new-task, move-task, assign-task use BoardClient)
+- [x] Add type hints throughout codebase (added to main functions, can be expanded)
 - [ ] Add docstrings to all public functions/classes
 - [ ] Create API documentation (Sphinx or similar)
 

@@ -2,32 +2,10 @@
 
 import json
 from pathlib import Path
-from datetime import datetime, timezone
-import uuid
+from typing import Optional, Tuple, List, Dict, Any
 import yaml
 
-
-def now_iso():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def load_yaml(path: Path, default=None):
-    if not path.exists():
-        return default
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def save_yaml(path: Path, data: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
-
-
-def generate_task_id(prefix="T"):
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    suffix = uuid.uuid4().hex[:6]
-    return f"{prefix}-{ts}-{suffix}"
+from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 
 
 class BoardError(Exception):
@@ -42,7 +20,7 @@ class BoardClient:
     - agent_id: the logical agent (human or AI) that is using this client
     """
 
-    def __init__(self, root: str | Path, agent_id: str):
+    def __init__(self, root: str | Path, agent_id: str) -> None:
         self.root = Path(root).resolve()
         self.agent_id = agent_id
 
@@ -280,7 +258,7 @@ class BoardClient:
                 raise BoardError(f"Unknown assignee id '{a}'")
 
         prefix = self.settings.get("task_filename_prefix", "T")
-        task_id = generate_task_id(prefix)
+        task_id: str = generate_task_id(prefix)
         created_at = now_iso()
 
         task = {

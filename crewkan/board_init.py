@@ -1,22 +1,9 @@
 # board_init.py
 
 from pathlib import Path
-from typing import Optional
-import yaml
+from typing import Optional, List, Dict, Any
 from crewkan.board_core import BoardError
-
-
-def load_yaml(path: Path, default=None):
-    if not path.exists():
-        return default
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def save_yaml(path: Path, data: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
+from crewkan.utils import load_yaml, save_yaml
 
 
 DEFAULT_COLUMNS = [

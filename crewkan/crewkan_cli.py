@@ -3,54 +3,33 @@
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional, List, Dict, Any
 import yaml
-from datetime import datetime, timezone
-import uuid
+
+from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
+from crewkan.board_core import BoardClient, BoardError
 
 
-def load_yaml(path: Path, default=None):
-    if not path.exists():
-        return default
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def save_yaml(path: Path, data: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
-
-
-def now_iso():
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def load_board(root: Path):
+def load_board(root: Path) -> Dict[str, Any]:
     board = load_yaml(root / "board.yaml")
     if board is None:
         raise RuntimeError(f"No board.yaml found in {root}")
     return board
 
 
-def load_agents(root: Path):
+def load_agents(root: Path) -> Dict[str, Any]:
     agents = load_yaml(root / "agents" / "agents.yaml", default={"agents": []})
     if "agents" not in agents:
         agents["agents"] = []
     return agents
 
 
-def save_agents(root: Path, agents):
+def save_agents(root: Path, agents: Dict[str, Any]) -> None:
     save_yaml(root / "agents" / "agents.yaml", agents)
 
 
-def get_column_ids(board):
+def get_column_ids(board: Dict[str, Any]) -> List[str]:
     return [c["id"] for c in board.get("columns", [])]
-
-
-def generate_task_id(prefix="T"):
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    suffix = uuid.uuid4().hex[:6]
-    return f"{prefix}-{ts}-{suffix}"
 
 
 def find_task_file(root: Path, task_id: str) -> Path:
@@ -82,7 +61,7 @@ def remove_symlink(link_path: Path):
 
 # Agent commands
 
-def cmd_list_agents(args):
+def cmd_list_agents(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     agents = load_agents(root)
     if not agents["agents"]:
@@ -92,7 +71,7 @@ def cmd_list_agents(args):
         print(f"{a['id']:15} {a.get('status','?'):8} {a.get('role','')} ({a.get('name','')})")
 
 
-def cmd_add_agent(args):
+def cmd_add_agent(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     agents = load_agents(root)
 
@@ -114,7 +93,7 @@ def cmd_add_agent(args):
     print(f"Added agent {args.id}")
 
 
-def cmd_remove_agent(args):
+def cmd_remove_agent(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     agents = load_agents(root)
     before = len(agents["agents"])
@@ -129,125 +108,125 @@ def cmd_remove_agent(args):
 
 # Task commands
 
-def cmd_new_task(args):
+def cmd_new_task(args: argparse.Namespace) -> None:
+    """Create a new task using BoardClient."""
     root = Path(args.root).resolve()
-    board = load_board(root)
-    agents = load_agents(root)
-    col_ids = get_column_ids(board)
-
-    column = args.column
-    if column not in col_ids:
-        raise RuntimeError(f"Unknown column '{column}'. Valid columns: {', '.join(col_ids)}")
-
-    assignees = args.assignee or []
-    valid_agent_ids = {a["id"] for a in agents["agents"]}
-    for a in assignees:
-        if a not in valid_agent_ids:
-            raise RuntimeError(f"Unknown agent id '{a}'")
-
-    prefix = board.get("settings", {}).get("task_filename_prefix", "T")
-    task_id = args.id or generate_task_id(prefix=prefix)
-    created_at = now_iso()
-
-    task = {
-        "id": task_id,
-        "title": args.title,
-        "description": args.description or "",
-        "status": column,
-        "column": column,
-        "priority": args.priority or board.get("settings", {}).get("default_priority", "medium"),
-        "tags": args.tags.split(",") if args.tags else [],
-        "assignees": assignees,
-        "dependencies": [],
-        "created_at": created_at,
-        "updated_at": created_at,
-        "due_date": args.due_date,
-        "history": [
-            {
-                "at": created_at,
-                "by": "cli",
-                "event": "created",
-                "details": f"Task created in column {column}",
-            }
-        ],
-    }
-
-    col_dir = root / "tasks" / column
-    col_dir.mkdir(parents=True, exist_ok=True)
-    path = col_dir / f"{task_id}.yaml"
-    save_yaml(path, task)
-
-    print(f"Created task {task_id} in column {column}")
-    print(f"File: {path}")
-
-
-def cmd_move_task(args):
-    root = Path(args.root).resolve()
-    board = load_board(root)
-    col_ids = get_column_ids(board)
-
-    if args.column not in col_ids:
-        raise RuntimeError(f"Unknown target column '{args.column}'. Valid: {', '.join(col_ids)}")
-
-    task_path = find_task_file(root, args.id)
-    task = load_yaml(task_path)
-    old_column = task.get("column", task.get("status", "unknown"))
-
-    task["status"] = args.column
-    task["column"] = args.column
-    task["updated_at"] = now_iso()
-    task.setdefault("history", []).append(
-        {
-            "at": task["updated_at"],
-            "by": "cli",
-            "event": "moved",
-            "details": f"{old_column} -> {args.column}",
+    
+    # Use BoardClient for task creation (need a default agent)
+    try:
+        # Try to get first agent or create a temporary one
+        agents = load_agents(root)
+        if not agents["agents"]:
+            raise RuntimeError("No agents defined. Create an agent first.")
+        agent_id = agents["agents"][0]["id"]
+    except Exception:
+        agent_id = "cli"  # Fallback
+    
+    try:
+        client = BoardClient(root, agent_id)
+    except BoardError:
+        # If agent doesn't exist, use CLI as fallback
+        board = load_board(root)
+        col_ids = get_column_ids(board)
+        
+        if args.column not in col_ids:
+            raise RuntimeError(f"Unknown column '{args.column}'. Valid columns: {', '.join(col_ids)}")
+        
+        # Fallback to direct file creation
+        assignees = args.assignee or []
+        valid_agent_ids = {a["id"] for a in agents["agents"]}
+        for a in assignees:
+            if a not in valid_agent_ids:
+                raise RuntimeError(f"Unknown agent id '{a}'")
+        
+        prefix = board.get("settings", {}).get("task_filename_prefix", "T")
+        task_id = args.id or generate_task_id(prefix=prefix)
+        created_at = now_iso()
+        
+        task = {
+            "id": task_id,
+            "title": args.title,
+            "description": args.description or "",
+            "status": args.column,
+            "column": args.column,
+            "priority": args.priority or board.get("settings", {}).get("default_priority", "medium"),
+            "tags": args.tags.split(",") if args.tags else [],
+            "assignees": assignees,
+            "dependencies": [],
+            "created_at": created_at,
+            "updated_at": created_at,
+            "due_date": args.due_date,
+            "history": [
+                {
+                    "at": created_at,
+                    "by": "cli",
+                    "event": "created",
+                    "details": f"Task created in column {args.column}",
+                }
+            ],
         }
+        
+        col_dir = root / "tasks" / args.column
+        col_dir.mkdir(parents=True, exist_ok=True)
+        path = col_dir / f"{task_id}.yaml"
+        save_yaml(path, task)
+        
+        print(f"Created task {task_id} in column {args.column}")
+        print(f"File: {path}")
+        return
+    
+    # Use BoardClient
+    task_id = client.create_task(
+        title=args.title,
+        description=args.description or "",
+        column=args.column,
+        assignees=args.assignee or [],
+        priority=args.priority,
+        tags=args.tags.split(",") if args.tags else [],
+        due_date=args.due_date,
     )
-
-    # Move file
-    new_dir = root / "tasks" / args.column
-    new_dir.mkdir(parents=True, exist_ok=True)
-    new_path = new_dir / task_path.name
-    save_yaml(new_path, task)
-    if new_path != task_path:
-        task_path.unlink()
-
-    print(f"Moved {args.id} from {old_column} to {args.column}")
+    print(f"Created task {task_id} in column {args.column}")
 
 
-def cmd_assign_task(args):
+def cmd_move_task(args: argparse.Namespace) -> None:
+    """Move a task using BoardClient."""
     root = Path(args.root).resolve()
+    
+    # Get agent for BoardClient
     agents = load_agents(root)
-    valid_agent_ids = {a["id"] for a in agents["agents"]}
-
-    for a in args.assignee:
-        if a not in valid_agent_ids:
-            raise RuntimeError(f"Unknown agent id '{a}'")
-
-    task_path = find_task_file(root, args.id)
-    task = load_yaml(task_path)
-
-    existing = set(task.get("assignees", []))
-    for a in args.assignee:
-        existing.add(a)
-    task["assignees"] = sorted(existing)
-
-    task["updated_at"] = now_iso()
-    task.setdefault("history", []).append(
-        {
-            "at": task["updated_at"],
-            "by": "cli",
-            "event": "assigned",
-            "details": f"Assigned to: {', '.join(args.assignee)}",
-        }
-    )
-
-    save_yaml(task_path, task)
-    print(f"Assigned {args.id} to: {', '.join(args.assignee)}")
+    if not agents["agents"]:
+        raise RuntimeError("No agents defined.")
+    agent_id = agents["agents"][0]["id"]
+    
+    try:
+        client = BoardClient(root, agent_id)
+        result = client.move_task(args.id, args.column)
+        print(result)
+    except BoardError as e:
+        raise RuntimeError(str(e))
 
 
-def cmd_list_tasks(args):
+def cmd_assign_task(args: argparse.Namespace) -> None:
+    """Assign task using BoardClient."""
+    root = Path(args.root).resolve()
+    
+    # Get agent for BoardClient
+    agents = load_agents(root)
+    if not agents["agents"]:
+        raise RuntimeError("No agents defined.")
+    agent_id = agents["agents"][0]["id"]
+    
+    try:
+        client = BoardClient(root, agent_id)
+        # Assign to first assignee, keeping existing
+        for assignee in args.assignee:
+            result = client.reassign_task(args.id, assignee, keep_existing=True)
+        print(f"Assigned {args.id} to: {', '.join(args.assignee)}")
+    except BoardError as e:
+        raise RuntimeError(str(e))
+
+
+def cmd_list_tasks(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     board = load_board(root)
     col_filter = args.column
@@ -281,7 +260,7 @@ def cmd_list_tasks(args):
         print("No matching tasks.")
 
 
-def cmd_validate(args):
+def cmd_validate(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     board = load_board(root)
     agents = load_agents(root)
@@ -335,7 +314,7 @@ def cmd_validate(args):
         sys.exit(1)
 
 
-def cmd_start_task(args):
+def cmd_start_task(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     agents = load_agents(root)
     board = load_board(root)
@@ -385,7 +364,7 @@ def cmd_start_task(args):
     print(f"Workspace link: {ws_link}")
 
 
-def cmd_stop_task(args):
+def cmd_stop_task(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
 
     # Workspace link (we don't need to touch canonical file)
@@ -522,10 +501,15 @@ def build_parser():
     return parser
 
 
-def main():
+def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    return args.func(args)
+    try:
+        args.func(args)
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
