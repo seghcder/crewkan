@@ -308,35 +308,43 @@ def main() -> None:
         
         # Process form submission immediately when button is clicked
         # With clear_on_submit=True, form values are cleared AFTER this block runs
-        # So we need to capture values before they're cleared
+        # So we capture and process values while they're still available
         if submitted:
+            # Capture form values immediately (they'll be cleared after this block)
+            captured_title = title
+            captured_description = description
+            captured_column = column_id
+            captured_priority = priority
+            captured_tags = tag_str
+            captured_assignees = assignee_multiselect
+            captured_due_date = due_date_str
             logger.info("=" * 50)
             logger.info("FORM SUBMITTED!")
-            logger.info(f"Title: '{title}'")
-            logger.info(f"Description: '{description}'")
-            logger.info(f"Column: {column_id}")
-            logger.info(f"Priority: {priority}")
-            logger.info(f"Tags: '{tag_str}'")
-            logger.info(f"Assignees: {assignee_multiselect}")
-            logger.info(f"Due date: '{due_date_str}'")
+            logger.info(f"Title: '{captured_title}'")
+            logger.info(f"Description: '{captured_description}'")
+            logger.info(f"Column: {captured_column}")
+            logger.info(f"Priority: {captured_priority}")
+            logger.info(f"Tags: '{captured_tags}'")
+            logger.info(f"Assignees: {captured_assignees}")
+            logger.info(f"Due date: '{captured_due_date}'")
             logger.info("=" * 50)
             
-            if not title or not title.strip():
+            if not captured_title or not captured_title.strip():
                 logger.warning("Form submitted but title is empty")
                 st.session_state["create_task_message"] = "⚠️ Title is required."
                 st.session_state["create_task_message_type"] = "error"
                 st.rerun()
             else:
                 try:
-                    logger.info(f"Attempting to create task: '{title.strip()}'")
+                    logger.info(f"Attempting to create task: '{captured_title.strip()}'")
                     task_id = create_task(
-                        title.strip(),
-                        description.strip() if description else "",
-                        column_id,
-                        assignee_multiselect,
-                        priority,
-                        tag_str.strip() if tag_str else "",
-                        due_date_str.strip() or None,
+                        captured_title.strip(),
+                        captured_description.strip() if captured_description else "",
+                        captured_column,
+                        captured_assignees,
+                        captured_priority,
+                        captured_tags.strip() if captured_tags else "",
+                        captured_due_date.strip() or None,
                     )
                     logger.info(f"✅ Task created successfully: {task_id}")
                     success_msg = f"✅ Created task {task_id}"
