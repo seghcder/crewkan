@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 SCHEMA_DIR = Path(__file__).parent / "schemas"
 BOARD_SCHEMA = SCHEMA_DIR / "board_schema.yaml"
 AGENTS_SCHEMA = SCHEMA_DIR / "agents_schema.yaml"
-TASK_SCHEMA = SCHEMA_DIR / "task_schema.yaml"
+TASK_SCHEMA = SCHEMA_DIR / "task_schema.yaml"  # Keep for backwards compatibility
+ISSUE_SCHEMA = SCHEMA_DIR / "issue_schema.yaml"
 
 # Current schema version
 SCHEMA_VERSION = 1
@@ -127,7 +128,12 @@ def load_yaml(
     elif "agents.yaml" in str(path):
         schema_path = AGENTS_SCHEMA
     elif path.parent.name in ["todo", "doing", "done", "backlog", "blocked"]:
-        schema_path = TASK_SCHEMA
+        # Check if in issues/ directory (new) or tasks/ directory (old)
+        if "issues" in str(path) or path.parent.parent.name == "issues":
+            schema_path = ISSUE_SCHEMA
+        else:
+            # Backwards compatibility: use TASK_SCHEMA for tasks/ directory
+            schema_path = TASK_SCHEMA
     
     lock = FileLock(path) if use_lock else None
     
@@ -240,7 +246,12 @@ def save_yaml(
     elif "agents.yaml" in str(path):
         schema_path = AGENTS_SCHEMA
     elif path.parent.name in ["todo", "doing", "done", "backlog", "blocked"]:
-        schema_path = TASK_SCHEMA
+        # Check if in issues/ directory (new) or tasks/ directory (old)
+        if "issues" in str(path) or path.parent.parent.name == "issues":
+            schema_path = ISSUE_SCHEMA
+        else:
+            # Backwards compatibility: use TASK_SCHEMA for tasks/ directory
+            schema_path = TASK_SCHEMA
     
     # Validate schema before saving
     if validate_schema and schema_path:
@@ -319,7 +330,15 @@ def save_yaml(
 
 
 def generate_task_id(prefix="T"):
-    """Generate a unique task ID with timestamp and random suffix."""
+    """Generate a unique task ID with timestamp and random suffix.
+    
+    DEPRECATED: Use generate_issue_id() instead.
+    Kept for backwards compatibility.
+    """
+    return generate_issue_id(prefix)
+
+def generate_issue_id(prefix="I"):
+    """Generate a unique issue ID with timestamp and random suffix."""
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     suffix = uuid.uuid4().hex[:6]
     return f"{prefix}-{ts}-{suffix}"

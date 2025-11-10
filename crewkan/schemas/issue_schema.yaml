@@ -1,0 +1,25 @@
+version: int(required=False)
+id: str()
+title: str()
+description: str(required=False)
+status: str(required=False)
+column: str()
+issue_type: enum('epic', 'user_story', 'task', 'bug', 'feature', 'improvement', required=False)
+priority: enum('low', 'medium', 'high', required=False)
+tags: list(str(), required=False)
+assignees: list(str(), required=False)
+dependencies: list(str(), required=False)
+created_at: str()
+updated_at: str()
+due_date: str(required=False)
+requested_by: str(required=False)
+history: list(include('history_entry_schema'), required=False)
+
+---
+history_entry_schema:
+  comment_id: str(required=False)
+  at: str()
+  by: str()
+  event: str()
+  details: str(required=False)
+

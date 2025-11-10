@@ -57,7 +57,9 @@ class BoardClient:
 
         self.columns = [c["id"] for c in self.board.get("columns", [])]
         self.settings = self.board.get("settings", {})
-        self.tasks_root = self.root / "tasks"
+        # Support both tasks/ (old) and issues/ (new) directories
+        self.tasks_root = self.root / "tasks"  # Keep for backwards compatibility
+        self.issues_root = self.root / "issues"  # New primary directory
         self.workspaces_root = self.root / "workspaces"
 
     # ------------------------------------------------------------------
@@ -93,9 +95,15 @@ class BoardClient:
         return list(self._agent_index.values())
     
     def get_task_details(self, task_id: str) -> dict:
-        """Get full task details including history/comments."""
-        path, task = self.find_task(task_id)
-        return task
+        """Get full task details including history/comments.
+        DEPRECATED: Use get_issue_details() instead. Kept for backwards compatibility.
+        """
+        return self.get_issue_details(task_id)
+
+    def get_issue_details(self, issue_id: str) -> dict:
+        """Get full issue details including history/comments."""
+        path, issue = self.find_issue(issue_id)
+        return issue
 
     # ------------------------------------------------------------------
     # Task discovery
@@ -104,22 +112,62 @@ class BoardClient:
     def iter_tasks(self):
         """
         Yield (path, data) for all task YAML files.
+        DEPRECATED: Use iter_issues() instead. Kept for backwards compatibility.
         """
-        if not self.tasks_root.exists():
-            return
-        for path in self.tasks_root.rglob("*.yaml"):
-            data = load_yaml(path)
-            if isinstance(data, dict):
-                yield path, data
+        # Check issues/ first (new), then tasks/ (old)
+        if self.issues_root.exists():
+            for path in self.issues_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict):
+                    yield path, data
+        if self.tasks_root.exists():
+            for path in self.tasks_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict):
+                    yield path, data
+
+    def iter_issues(self):
+        """
+        Yield (path, data) for all issue YAML files.
+        Checks issues/ directory first, then tasks/ for backwards compatibility.
+        """
+        # Check issues/ first (new), then tasks/ (old)
+        if self.issues_root.exists():
+            for path in self.issues_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict):
+                    yield path, data
+        if self.tasks_root.exists():
+            for path in self.tasks_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict):
+                    yield path, data
 
     def find_task(self, task_id: str) -> tuple[Path, dict]:
         """
         Locate a task by id. Returns (path, data) or raises BoardError.
+        DEPRECATED: Use find_issue() instead. Kept for backwards compatibility.
         """
-        for path, data in self.iter_tasks():
-            if data.get("id") == task_id:
-                return path, data
-        raise BoardError(f"Task '{task_id}' not found")
+        return self.find_issue(task_id)
+
+    def find_issue(self, issue_id: str) -> tuple[Path, dict]:
+        """
+        Locate an issue by id. Returns (path, data) or raises BoardError.
+        Checks issues/ directory first, then tasks/ for backwards compatibility.
+        """
+        # Check issues/ first (new)
+        if self.issues_root.exists():
+            for path in self.issues_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict) and data.get("id") == issue_id:
+                    return path, data
+        # Fall back to tasks/ (old)
+        if self.tasks_root.exists():
+            for path in self.tasks_root.rglob("*.yaml"):
+                data = load_yaml(path)
+                if isinstance(data, dict) and data.get("id") == issue_id:
+                    return path, data
+        raise BoardError(f"Issue '{issue_id}' not found")
 
     # ------------------------------------------------------------------
     # Public operations used by tools
@@ -128,25 +176,33 @@ class BoardClient:
     def list_my_tasks(self, column: str | None = None, limit: int = 50) -> str:
         """
         Return tasks assigned to this agent, optionally filtered by column.
-        Returns a JSON string of a list of task summaries.
+        DEPRECATED: Use list_my_issues() instead. Kept for backwards compatibility.
+        """
+        return self.list_my_issues(column, limit)
+
+    def list_my_issues(self, column: str | None = None, limit: int = 50) -> str:
+        """
+        Return issues assigned to this agent, optionally filtered by column.
+        Returns a JSON string of a list of issue summaries.
         """
         results = []
-        for _, task in self.iter_tasks():
-            assignees = task.get("assignees") or []
+        for _, issue in self.iter_issues():
+            assignees = issue.get("assignees") or []
             if self.agent_id not in assignees:
                 continue
-            if column and task.get("column") != column:
+            if column and issue.get("column") != column:
                 continue
 
             results.append(
                 {
-                    "id": task.get("id"),
-                    "title": task.get("title"),
-                    "column": task.get("column"),
-                    "priority": task.get("priority"),
+                    "id": issue.get("id"),
+                    "title": issue.get("title"),
+                    "column": issue.get("column"),
+                    "issue_type": issue.get("issue_type", "task"),  # Default to "task" for backwards compatibility
+                    "priority": issue.get("priority"),
                     "assignees": assignees,
-                    "due_date": task.get("due_date"),
-                    "tags": task.get("tags") or [],
+                    "due_date": issue.get("due_date"),
+                    "tags": issue.get("tags") or [],
                 }
             )
             if len(results) >= limit:
