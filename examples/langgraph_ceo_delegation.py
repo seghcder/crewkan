@@ -46,9 +46,9 @@ class AgentState(TypedDict):
     """State shared between agents in the graph."""
     messages: Annotated[list, add]  # Messages with reducer to handle concurrent updates
     agent_id: str  # Current agent processing
-    task_id: str | None  # Current task being worked on
+    issue_id: str | None  # Current issue being worked on
     board_root: str  # Board directory
-    last_task_gen_time: float  # Timestamp of last task generation
+    last_issue_gen_time: float  # Timestamp of last issue generation
     should_exit: bool  # Flag to signal all work is done
 
 
@@ -62,40 +62,34 @@ def get_priority_value(priority: str | None) -> int:
     return priority_map.get(priority or "medium", 0)
 
 
-def count_tasks_by_status(board_root: str) -> dict[str, int]:
-    """Count tasks in each column."""
-    client = BoardClient(board_root, "ceo")  # Use CEO to count all tasks
+def count_issues_by_status(board_root: str) -> dict[str, int]:
+    """Count issues in each column."""
+    client = BoardClient(board_root, "ceo")  # Use CEO to count all issues
     counts = {}
-    for path, task in client.iter_tasks():
-        column = task.get("column", "unknown")
+    for path, issue in client.iter_issues():
+        column = issue.get("column", "unknown")
         counts[column] = counts.get(column, 0) + 1
     return counts
 
 
-def get_recent_task_history(board_root: str, limit: int = 10) -> str:
-    """Get recent task history for context in task generation."""
+def get_recent_issue_history(board_root: str, limit: int = 10) -> str:
+    """Get recent issue history for context in issue generation."""
     client = BoardClient(board_root, "ceo")
     history = []
     
-    # Get recent completed tasks
-    for path, task in client.iter_tasks():
-        if task.get("column") == "done":
+    # Get recent completed issues
+    for path, issue in client.iter_issues():
+        if issue.get("column") == "done":
             history.append({
-                "title": task.get("title", ""),
-                "assignee": task.get("assignees", [""])[0] if task.get("assignees") else "",
-                "priority": task.get("priority", "medium"),
+                "title": issue.get("title", ""),
+                "assignee": issue.get("assignees", [""])[0] if issue.get("assignees") else "",
+                "priority": issue.get("priority", "medium"),
+                "issue_type": issue.get("issue_type", "task"),
             })
         if len(history) >= limit:
             break
     
     return json.dumps(history, indent=2)
-
-
-def all_tasks_done(board_root: str, expected_total: int = 30) -> bool:
-    """Check if all tasks are in the 'done' column."""
-    counts = count_tasks_by_status(board_root)
-    done_count = counts.get("done", 0)
-    return done_count >= expected_total
 
 
 # ============================================================================
@@ -135,34 +129,34 @@ def create_ceo_node(board_root: str):
     max_backlog_per_agent = 5
     
     async def ceo_agent(state: AgentState):
-        """CEO agent: Generates tasks dynamically using GenAI, works on tasks, and handles clarifications."""
-        last_gen_time = state.get("last_task_gen_time", 0.0)
+        """CEO agent: Generates issues dynamically using GenAI, works on issues, and handles clarifications."""
+        last_gen_time = state.get("last_issue_gen_time", 0.0)
         current_time = time.time()
         
-        # First, CEO also works on tasks (like other workers)
-        # Priority order: 1) Complete tasks in "doing", 2) Start tasks from "todo", 3) Move from "backlog" to "todo"
+        # First, CEO also works on issues (like other workers)
+        # Priority order: 1) Complete issues in "doing", 2) Start issues from "todo", 3) Move from "backlog" to "todo"
         
-        # Step 1: Check if there's a task in "doing" - if so, complete it (highest priority)
-        doing_tasks_json = client.list_my_tasks(column="doing", limit=1)
-        doing_tasks = json.loads(doing_tasks_json)
+        # Step 1: Check if there's an issue in "doing" - if so, complete it (highest priority)
+        doing_issues_json = client.list_my_issues(column="doing", limit=1)
+        doing_issues = json.loads(doing_issues_json)
         
-        if doing_tasks:
-            task = doing_tasks[0]
-            task_id = task["id"]
-            # Get full task details for GenAI comment generation
-            task_details = client.get_task_details(task_id)
+        if doing_issues:
+            issue = doing_issues[0]
+            issue_id = issue["id"]
+            # Get full issue details for GenAI comment generation
+            issue_details = client.get_issue_details(issue_id)
             
             # Generate completion comment using GenAI
             comments_text = "\n".join([
                 f"- {h.get('by', 'unknown')}: {h.get('details', '')}"
-                for h in task_details.get("history", [])
+                for h in issue_details.get("history", [])
                 if h.get("event") == "comment"
             ])
             
-            completion_prompt = f"""You are a CEO completing a task. Generate a brief completion comment summarizing what was accomplished.
+            completion_prompt = f"""You are a CEO completing an issue. Generate a brief completion comment summarizing what was accomplished.
 
-Task: {task_details.get('title', '')}
-Description: {task_details.get('description', '')}
+Issue: {issue_details.get('title', '')}
+Description: {issue_details.get('description', '')}
 Previous comments:
 {comments_text if comments_text else 'None'}
 
@@ -171,44 +165,44 @@ Generate a brief completion comment (1-2 sentences):"""
             try:
                 response = llm.invoke(completion_prompt)
                 completion_comment = response.content.strip()
-                client.add_comment(task_id, completion_comment)
+                client.add_comment(issue_id, completion_comment)
             except Exception as e:
-                completion_comment = "Task completed successfully."
-                client.add_comment(task_id, completion_comment)
+                completion_comment = "Issue completed successfully."
+                client.add_comment(issue_id, completion_comment)
             
             # Simulate work (random 2-5 seconds)
             work_time = random.uniform(2.0, 5.0)
             await asyncio.sleep(work_time)
             # Move to done
-            client.move_task(task_id, "done", notify_on_completion=True)
+            client.move_issue(issue_id, "done", notify_on_completion=True)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Completed task {task_id} ({task.get('title', '')}) and moved to done"
+                    "content": f"CEO: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done"
                 }]
             }
         
-        # Step 2: Pick highest priority task from todo and move to doing
-        todo_tasks_json = client.list_my_tasks(column="todo", limit=10)
-        todo_tasks = json.loads(todo_tasks_json)
+        # Step 2: Pick highest priority issue from todo and move to doing
+        todo_issues_json = client.list_my_issues(column="todo", limit=10)
+        todo_issues = json.loads(todo_issues_json)
         
-        if todo_tasks:
+        if todo_issues:
             # Sort by priority (high > medium > low)
-            todo_tasks.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
-            task = todo_tasks[0]
-            task_id = task["id"]
+            todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
+            issue = todo_issues[0]
+            issue_id = issue["id"]
             
             # Check if clarification is needed (1 in 5 chance)
             if random.random() < 0.2:  # 20% chance
-                task_details = client.get_task_details(task_id)
-                requested_by = task_details.get("requested_by")
+                issue_details = client.get_issue_details(issue_id)
+                requested_by = issue_details.get("requested_by")
                 
                 # CEO is board owner, so it cannot assign upwards
                 # Instead, add clarifying comment and reassign back to requestor (or keep if no requestor)
-                clarification_prompt = f"""You are a CEO (board owner) requesting clarification on a task. Generate a clarifying question.
+                clarification_prompt = f"""You are a CEO (board owner) requesting clarification on an issue. Generate a clarifying question.
 
-Task: {task_details.get('title', '')}
-Description: {task_details.get('description', '')}
+Issue: {issue_details.get('title', '')}
+Description: {issue_details.get('description', '')}
 
 Generate a brief clarifying question (1-2 sentences):"""
                 
@@ -216,107 +210,109 @@ Generate a brief clarifying question (1-2 sentences):"""
                     response = llm.invoke(clarification_prompt)
                     clarification = response.content.strip()
                 except Exception as e:
-                    clarification = "Need clarification on this task. Please provide more details."
+                    clarification = "Need clarification on this issue. Please provide more details."
                 
-                client.add_comment(task_id, f"Clarification needed: {clarification}")
+                client.add_comment(issue_id, f"Clarification needed: {clarification}")
                 
                 # Reassign to requestor if available, otherwise keep in backlog
                 if requested_by and requested_by in agent_ids and requested_by != "ceo":
-                    client.reassign_task(task_id, requested_by, keep_existing=False)
-                    client.move_task(task_id, "backlog", notify_on_completion=False)
+                    client.reassign_issue(issue_id, requested_by, keep_existing=False)
+                    client.move_issue(issue_id, "backlog", notify_on_completion=False)
                     return {
                         "messages": [{
                             "role": "assistant",
-                            "content": f"CEO: Requested clarification on task {task_id} and reassigned to {requested_by}"
+                            "content": f"CEO: Requested clarification on issue {issue_id} and reassigned to {requested_by}"
                         }]
                     }
                 else:
                     # No requestor or CEO requested it, just add comment and move back to backlog
-                    client.move_task(task_id, "backlog", notify_on_completion=False)
+                    client.move_issue(issue_id, "backlog", notify_on_completion=False)
                     return {
                         "messages": [{
                             "role": "assistant",
-                            "content": f"CEO: Requested clarification on task {task_id} and moved back to backlog"
+                            "content": f"CEO: Requested clarification on issue {issue_id} and moved back to backlog"
                         }]
                     }
             
             # No clarification needed, start working
-            client.move_task(task_id, "doing", notify_on_completion=False)
+            client.move_issue(issue_id, "doing", notify_on_completion=False)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Started working on task {task_id} ({task.get('title', '')}) - priority: {task.get('priority', 'medium')}"
+                    "content": f"CEO: Started working on issue {issue_id} ({issue.get('title', '')}) - priority: {issue.get('priority', 'medium')}"
                 }]
             }
         
-        # Step 3: Move tasks from backlog to todo (if any)
-        backlog_tasks_json = client.list_my_tasks(column="backlog", limit=10)
-        backlog_tasks = json.loads(backlog_tasks_json)
+        # Step 3: Move issues from backlog to todo (if any)
+        backlog_issues_json = client.list_my_issues(column="backlog", limit=10)
+        backlog_issues = json.loads(backlog_issues_json)
         
-        if backlog_tasks:
-            # Move first task from backlog to todo
-            task = backlog_tasks[0]
-            task_id = task["id"]
-            client.move_task(task_id, "todo", notify_on_completion=False)
+        if backlog_issues:
+            # Move first issue from backlog to todo
+            issue = backlog_issues[0]
+            issue_id = issue["id"]
+            client.move_issue(issue_id, "todo", notify_on_completion=False)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Moved task {task_id} from backlog to todo"
+                    "content": f"CEO: Moved issue {issue_id} from backlog to todo"
                 }]
             }
         
-        # Step 4: Generate new tasks (if backlog not full)
-        # Check if we should generate a new task (every ~1 second)
+        # Step 4: Generate new issues (if backlog not full)
+        # Check if we should generate a new issue (every ~1 second)
         if current_time - last_gen_time < 1.0:
             # Too soon, just wait
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": "CEO: No tasks to process. Waiting..."
+                    "content": "CEO: No issues to process. Waiting..."
                 }]
             }
         
         # Check backlog size - only generate if backlog < agents X max_backlog_per_agent
-        counts = count_tasks_by_status(board_root)
+        counts = count_issues_by_status(board_root)
         backlog_count = counts.get("backlog", 0)
         max_backlog = len(agent_ids) * max_backlog_per_agent
         
         if backlog_count >= max_backlog:
             # Backlog is full, don't generate more
             return {
-                "last_task_gen_time": current_time,
+                "last_issue_gen_time": current_time,
                 "messages": [{
                     "role": "assistant",
-                    "content": "CEO: Backlog is full, not generating new tasks"
+                    "content": "CEO: Backlog is full, not generating new issues"
                 }]
             }
         
-        # Get recent task history for context
-        recent_history = get_recent_task_history(board_root, limit=5)
+        # Get recent issue history for context
+        recent_history = get_recent_issue_history(board_root, limit=5)
         
-        # Generate a new task using GenAI
+        # Generate a new issue using GenAI
         agent_names = ", ".join([f"{a['id'].upper()} ({a.get('role', 'Agent')})" for a in all_agents if a.get("status") != "inactive"])
-        prompt = f"""You are a CEO managing a team. You are the board owner, so you cannot assign tasks upwards.
+        prompt = f"""You are a CEO managing a team. You are the board owner, so you cannot assign issues upwards.
 
 Available agents: {agent_names}
-You (CEO) can also assign tasks to yourself.
+You (CEO) can also assign issues to yourself.
 
-Recent completed tasks:
+Recent completed issues:
 {recent_history}
 
 Current backlog size: {backlog_count}/{max_backlog}
 
-Generate ONE new task. Consider:
+Generate ONE new issue. Consider:
 1. What work would be most valuable based on recent completions?
 2. Which agent (including 'ceo' for yourself) should handle this?
 3. What priority (high, medium, low) is appropriate?
+4. What issue type (epic, user_story, task, bug, feature, improvement) is appropriate?
 
 Respond in JSON format:
 {{
-    "title": "Task title",
-    "description": "Brief task description",
+    "title": "Issue title",
+    "description": "Brief issue description",
     "assignee": "agent_id",
-    "priority": "high|medium|low"
+    "priority": "high|medium|low",
+    "issue_type": "epic|user_story|task|bug|feature|improvement"
 }}"""
 
         try:
@@ -329,40 +325,45 @@ Respond in JSON format:
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
             
-            task_data = json.loads(content)
+            issue_data = json.loads(content)
             
-            # Validate and create task
-            assignee = task_data.get("assignee", random.choice(agent_ids))
+            # Validate and create issue
+            assignee = issue_data.get("assignee", random.choice(agent_ids))
             if assignee not in agent_ids:
                 assignee = random.choice(agent_ids)
             
-            priority = task_data.get("priority", "medium")
+            priority = issue_data.get("priority", "medium")
             if priority not in ["high", "medium", "low"]:
                 priority = "medium"
             
-            task_id = client.create_task(
-                title=task_data.get("title", "Generated task"),
-                description=task_data.get("description", ""),
+            issue_type = issue_data.get("issue_type", "task")
+            if issue_type not in ["epic", "user_story", "task", "bug", "feature", "improvement"]:
+                issue_type = "task"
+            
+            issue_id = client.create_issue(
+                title=issue_data.get("title", "Generated issue"),
+                description=issue_data.get("description", ""),
                 column="backlog",
                 assignees=[assignee],
                 priority=priority,
+                issue_type=issue_type,
                 requested_by="ceo",
             )
             
             return {
-                "last_task_gen_time": current_time,
+                "last_issue_gen_time": current_time,
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Generated task {task_id} for {assignee.upper()} - {task_data.get('title', '')} (priority: {priority})"
+                    "content": f"CEO: Generated issue {issue_id} for {assignee.upper()} - {issue_data.get('title', '')} (type: {issue_type}, priority: {priority})"
                 }]
             }
         except Exception as e:
             # If generation fails, just update timestamp and continue
             return {
-                "last_task_gen_time": current_time,
+                "last_issue_gen_time": current_time,
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Task generation failed, will retry later"
+                    "content": f"CEO: Issue generation failed, will retry later"
                 }]
             }
     
@@ -402,36 +403,36 @@ def create_worker_node(board_root: str, worker_id: str):
     agent_ids = [a["id"] for a in all_agents if a.get("status") != "inactive"]
     
     async def worker_agent(state: AgentState):
-        """Worker agent: Continuously processes tasks from backlog→todo→doing→done."""
+        """Worker agent: Continuously processes issues from backlog→todo→doing→done."""
         messages = state.get("messages", [])
         
-        # Priority order: 1) Complete tasks in "doing", 2) Start tasks from "todo", 3) Move from "backlog" to "todo"
+        # Priority order: 1) Complete issues in "doing", 2) Start issues from "todo", 3) Move from "backlog" to "todo"
         
-        # Step 1: Check if there's a task in "doing" - if so, complete it (highest priority)
-        doing_tasks_json = client.list_my_tasks(column="doing", limit=1)
-        doing_tasks = json.loads(doing_tasks_json)
+        # Step 1: Check if there's an issue in "doing" - if so, complete it (highest priority)
+        doing_issues_json = client.list_my_issues(column="doing", limit=1)
+        doing_issues = json.loads(doing_issues_json)
         
-        if doing_tasks:
-            task = doing_tasks[0]
-            task_id = task["id"]
+        if doing_issues:
+            issue = doing_issues[0]
+            issue_id = issue["id"]
             
-            # Get full task details for GenAI comment generation
-            task_details = client.get_task_details(task_id)
+            # Get full issue details for GenAI comment generation
+            issue_details = client.get_issue_details(issue_id)
             
             # Generate completion comment using GenAI
             comments_text = "\n".join([
                 f"- {h.get('by', 'unknown')}: {h.get('details', '')}"
-                for h in task_details.get("history", [])
+                for h in issue_details.get("history", [])
                 if h.get("event") == "comment"
             ])
             
             completion_comment = None
             if llm:
                 try:
-                    completion_prompt = f"""You are a worker completing a task. Generate a brief completion comment summarizing what was accomplished.
+                    completion_prompt = f"""You are a worker completing an issue. Generate a brief completion comment summarizing what was accomplished.
 
-Task: {task_details.get('title', '')}
-Description: {task_details.get('description', '')}
+Issue: {issue_details.get('title', '')}
+Description: {issue_details.get('description', '')}
 Previous comments:
 {comments_text if comments_text else 'None'}
 
@@ -440,109 +441,109 @@ Generate a brief completion comment (1-2 sentences):"""
                     response = llm.invoke(completion_prompt)
                     completion_comment = response.content.strip()
                 except Exception:
-                    completion_comment = "Task completed successfully."
+                    completion_comment = "Issue completed successfully."
             else:
-                completion_comment = "Task completed successfully."
+                completion_comment = "Issue completed successfully."
             
-            client.add_comment(task_id, completion_comment)
+            client.add_comment(issue_id, completion_comment)
             
             # Simulate work (random 2-5 seconds)
             work_time = random.uniform(2.0, 5.0)
             await asyncio.sleep(work_time)
             # Move to done
-            client.move_task(task_id, "done", notify_on_completion=True)
+            client.move_issue(issue_id, "done", notify_on_completion=True)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"{worker_id.upper()}: Completed task {task_id} ({task.get('title', '')}) and moved to done"
+                    "content": f"{worker_id.upper()}: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done"
                 }]
             }
         
-        # Step 2: Pick highest priority task from todo and move to doing
-        todo_tasks_json = client.list_my_tasks(column="todo", limit=10)
-        todo_tasks = json.loads(todo_tasks_json)
+        # Step 2: Pick highest priority issue from todo and move to doing
+        todo_issues_json = client.list_my_issues(column="todo", limit=10)
+        todo_issues = json.loads(todo_issues_json)
         
-        if todo_tasks:
+        if todo_issues:
             # Sort by priority (high > medium > low)
-            todo_tasks.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
-            task = todo_tasks[0]
-            task_id = task["id"]
+            todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
+            issue = todo_issues[0]
+            issue_id = issue["id"]
             
             # Check if clarification is needed (1 in 5 chance)
             if random.random() < 0.2:  # 20% chance
-                task_details = client.get_task_details(task_id)
-                requested_by = task_details.get("requested_by")
+                issue_details = client.get_issue_details(issue_id)
+                requested_by = issue_details.get("requested_by")
                 
                 # Generate clarification request using GenAI
                 clarification = None
                 if llm:
                     try:
-                        clarification_prompt = f"""You are a worker requesting clarification on a task. Generate a clarifying question.
+                        clarification_prompt = f"""You are a worker requesting clarification on an issue. Generate a clarifying question.
 
-Task: {task_details.get('title', '')}
-Description: {task_details.get('description', '')}
+Issue: {issue_details.get('title', '')}
+Description: {issue_details.get('description', '')}
 
 Generate a brief clarifying question (1-2 sentences):"""
                         
                         response = llm.invoke(clarification_prompt)
                         clarification = response.content.strip()
                     except Exception:
-                        clarification = "Need clarification on this task. Please provide more details."
+                        clarification = "Need clarification on this issue. Please provide more details."
                 else:
-                    clarification = "Need clarification on this task. Please provide more details."
+                    clarification = "Need clarification on this issue. Please provide more details."
                 
-                client.add_comment(task_id, f"Clarification needed: {clarification}")
+                client.add_comment(issue_id, f"Clarification needed: {clarification}")
                 
                 # Reassign to requestor if available, otherwise keep in backlog
                 if requested_by and requested_by in agent_ids:
-                    client.reassign_task(task_id, requested_by, keep_existing=False)
-                    client.move_task(task_id, "backlog", notify_on_completion=False)
+                    client.reassign_issue(issue_id, requested_by, keep_existing=False)
+                    client.move_issue(issue_id, "backlog", notify_on_completion=False)
                     return {
                         "messages": [{
                             "role": "assistant",
-                            "content": f"{worker_id.upper()}: Requested clarification on task {task_id} and reassigned to {requested_by}"
+                            "content": f"{worker_id.upper()}: Requested clarification on issue {issue_id} and reassigned to {requested_by}"
                         }]
                     }
                 else:
                     # No requestor, just add comment and move back to backlog
-                    client.move_task(task_id, "backlog", notify_on_completion=False)
+                    client.move_issue(issue_id, "backlog", notify_on_completion=False)
                     return {
                         "messages": [{
                             "role": "assistant",
-                            "content": f"{worker_id.upper()}: Requested clarification on task {task_id} and moved back to backlog"
+                            "content": f"{worker_id.upper()}: Requested clarification on issue {issue_id} and moved back to backlog"
                         }]
                     }
             
             # No clarification needed, start working
-            client.move_task(task_id, "doing", notify_on_completion=False)
+            client.move_issue(issue_id, "doing", notify_on_completion=False)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"{worker_id.upper()}: Started working on task {task_id} ({task.get('title', '')}) - priority: {task.get('priority', 'medium')}"
+                    "content": f"{worker_id.upper()}: Started working on issue {issue_id} ({issue.get('title', '')}) - priority: {issue.get('priority', 'medium')}"
                 }]
             }
         
-        # Step 3: Move tasks from backlog to todo (if any)
-        backlog_tasks_json = client.list_my_tasks(column="backlog", limit=10)
-        backlog_tasks = json.loads(backlog_tasks_json)
+        # Step 3: Move issues from backlog to todo (if any)
+        backlog_issues_json = client.list_my_issues(column="backlog", limit=10)
+        backlog_issues = json.loads(backlog_issues_json)
         
-        if backlog_tasks:
-            # Move first task from backlog to todo
-            task = backlog_tasks[0]
-            task_id = task["id"]
-            client.move_task(task_id, "todo", notify_on_completion=False)
+        if backlog_issues:
+            # Move first issue from backlog to todo
+            issue = backlog_issues[0]
+            issue_id = issue["id"]
+            client.move_issue(issue_id, "todo", notify_on_completion=False)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"{worker_id.upper()}: Moved task {task_id} from backlog to todo"
+                    "content": f"{worker_id.upper()}: Moved issue {issue_id} from backlog to todo"
                 }]
             }
         
-        # No tasks to process
+        # No issues to process
         return {
             "messages": [{
                 "role": "assistant",
-                "content": f"{worker_id.upper()}: No tasks to process. Waiting..."
+                "content": f"{worker_id.upper()}: No issues to process. Waiting..."
             }]
         }
     
@@ -663,7 +664,7 @@ async def main():
         for agent_id, name, role in executives:
             if agent_id not in existing_ids:
                 args = Args(root=str(board_root), id=agent_id, name=name, role=role, kind="ai")
-                cmd_add_agent(args)
+            cmd_add_agent(args)
     
     # Create and run graph - all agents run independently
     graph = create_delegation_graph(str(board_root))
