@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import yaml
 
-from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
+from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id, generate_issue_id
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -211,54 +211,66 @@ class BoardClient:
         return json.dumps(results, indent=2)
 
     def move_task(self, task_id: str, new_column: str, notify_on_completion: bool = True) -> str:
-        logger.info(f"Moving task {task_id} to column {new_column} (agent: {self.agent_id})")
         """
         Move a task to another column.
+        DEPRECATED: Use move_issue() instead. Kept for backwards compatibility.
+        """
+        return self.move_issue(task_id, new_column, notify_on_completion)
+
+    def move_issue(self, issue_id: str, new_column: str, notify_on_completion: bool = True) -> str:
+        logger.info(f"Moving issue {issue_id} to column {new_column} (agent: {self.agent_id})")
+        """
+        Move an issue to another column.
         
         Args:
-            task_id: Task ID to move
+            issue_id: Issue ID to move
             new_column: Target column
             notify_on_completion: If True and moving to "done", create completion event
         """
         if new_column not in self.columns:
             raise BoardError(f"Unknown column '{new_column}'")
 
-        path, task = self.find_task(task_id)
-        old_column = task.get("column", task.get("status"))
+        path, issue = self.find_issue(issue_id)
+        old_column = issue.get("column", issue.get("status"))
 
         if old_column == new_column:
-            return f"Task {task_id} is already in column '{new_column}'."
+            return f"Issue {issue_id} is already in column '{new_column}'."
 
-        task["column"] = new_column
-        task["status"] = new_column
-        task["updated_at"] = now_iso()
-        task.setdefault("history", []).append(
+        issue["column"] = new_column
+        issue["status"] = new_column
+        issue["updated_at"] = now_iso()
+        issue.setdefault("history", []).append(
             {
-                "at": task["updated_at"],
+                "at": issue["updated_at"],
                 "by": self.agent_id,
                 "event": "moved",
                 "details": f"{old_column} -> {new_column}",
             }
         )
 
-        new_dir = self.tasks_root / new_column
+        # Determine target directory (issues/ for new, tasks/ for old)
+        # If issue is in issues/, move to issues/; if in tasks/, move to tasks/
+        if "issues" in str(path):
+            new_dir = self.issues_root / new_column
+        else:
+            new_dir = self.tasks_root / new_column
         new_dir.mkdir(parents=True, exist_ok=True)
         new_path = new_dir / path.name
 
-        save_yaml(new_path, task)
+        save_yaml(new_path, issue)
         if new_path != path:
             path.unlink()
 
         # Optional: update workspace symlinks
-        self._update_workspace_links(task_id, old_column, new_column)
+        self._update_workspace_links(issue_id, old_column, new_column)
         
         # If moving to "done" and notification enabled, create completion event
         if new_column == "done" and notify_on_completion:
             # Determine who to notify: original requestor or default superagent
             notify_agent = None
             
-            # Check if task has a "requested_by" field (set when task is created/delegated)
-            requested_by = task.get("requested_by")
+            # Check if issue has a "requested_by" field (set when issue is created/delegated)
+            requested_by = issue.get("requested_by")
             if requested_by and requested_by in self._agent_index:
                 notify_agent = requested_by
             else:
@@ -270,84 +282,91 @@ class BoardClient:
                     from crewkan.board_events import create_completion_event
                     create_completion_event(
                         board_root=self.root,
-                        task_id=task_id,
+                        task_id=issue_id,  # Events still use task_id for now
                         completed_by=self.agent_id,
                         notify_agent=notify_agent,
                     )
-                    logger.info(f"Created completion event for task {task_id}, notifying {notify_agent}")
+                    logger.info(f"Created completion event for issue {issue_id}, notifying {notify_agent}")
                 except Exception as e:
                     logger.warning(f"Failed to create completion event: {e}")
 
-        logger.debug(f"Moved task {task_id} from {old_column} to {new_column}")
-        return f"Moved task {task_id} from '{old_column}' to '{new_column}'."
+        logger.debug(f"Moved issue {issue_id} from {old_column} to {new_column}")
+        return f"Moved issue {issue_id} from '{old_column}' to '{new_column}'."
 
     def update_task_field(self, task_id: str, field: str, value: str) -> str:
-        logger.info(f"Updating task {task_id} field {field} (agent: {self.agent_id})")
         """
-        Update a simple top-level field (title, description, priority, due_date, tags).
+        Update a simple top-level field.
+        DEPRECATED: Use update_issue_field() instead. Kept for backwards compatibility.
+        """
+        return self.update_issue_field(task_id, field, value)
+
+    def update_issue_field(self, issue_id: str, field: str, value: str) -> str:
+        logger.info(f"Updating issue {issue_id} field {field} (agent: {self.agent_id})")
+        """
+        Update a simple top-level field (title, description, issue_type, priority, due_date, tags).
         For tags, value should be comma-separated string.
         """
-        allowed_fields = {"title", "description", "priority", "due_date", "tags"}
+        allowed_fields = {"title", "description", "issue_type", "priority", "due_date", "tags"}
         if field not in allowed_fields:
             raise BoardError(f"Field '{field}' not allowed. Allowed: {', '.join(sorted(allowed_fields))}")
 
-        path, task = self.find_task(task_id)
-        old_value = task.get(field)
+        path, issue = self.find_issue(issue_id)
+        old_value = issue.get(field)
         
         # Handle tags specially - convert comma-separated string to list
         if field == "tags":
             if isinstance(value, str):
-                task[field] = [t.strip() for t in value.split(",") if t.strip()]
+                issue[field] = [t.strip() for t in value.split(",") if t.strip()]
             elif isinstance(value, list):
-                task[field] = value
+                issue[field] = value
             else:
                 raise BoardError(f"Tags must be string or list, got {type(value)}")
         else:
-            task[field] = value
+            issue[field] = value
         
-        task["updated_at"] = now_iso()
-        task.setdefault("history", []).append(
+        issue["updated_at"] = now_iso()
+        issue.setdefault("history", []).append(
             {
-                "at": task["updated_at"],
+                "at": issue["updated_at"],
                 "by": self.agent_id,
                 "event": "updated",
-                "details": f"{field}: '{old_value}' -> '{task[field]}'",
+                "details": f"{field}: '{old_value}' -> '{issue[field]}'",
             }
         )
-        save_yaml(path, task)
-        return f"Updated task {task_id} field '{field}' from '{old_value}' to '{task[field]}'."
+        save_yaml(path, issue)
+        return f"Updated issue {issue_id} field '{field}' from '{old_value}' to '{issue[field]}'."
 
     def add_comment(self, task_id: str, comment: str) -> str:
-        logger.info(f"Adding comment to task {task_id} (agent: {self.agent_id})")
         """
-        Add a new comment event to the task history.
-        Returns the comment_id of the newly created comment.
+        Add a new comment event.
+        Works with both tasks and issues (backwards compatible).
         """
         import uuid
         from crewkan.utils import now_iso
         
-        path, task = self.find_task(task_id)
+        path, issue = self.find_issue(task_id)  # find_issue works for both
         comment_id = f"C-{uuid.uuid4().hex[:8]}"
-        task["updated_at"] = now_iso()
+        issue["updated_at"] = now_iso()
         comment_entry = {
             "comment_id": comment_id,
-            "at": task["updated_at"],
+            "at": issue["updated_at"],
             "by": self.agent_id,
             "event": "comment",
             "details": comment,
         }
-        task.setdefault("history", []).append(comment_entry)
-        save_yaml(path, task)
+        issue.setdefault("history", []).append(comment_entry)
+        save_yaml(path, issue)
         return comment_id
     
     def get_comments(self, task_id: str) -> list[dict]:
         """
-        Get all comments for a task.
+        Get all comments for a task/issue.
+        Works with both tasks and issues (backwards compatible).
         Returns a list of comment dictionaries with comment_id, at, by, and details.
         """
-        path, task = self.find_task(task_id)
+        path, issue = self.find_issue(task_id)  # find_issue works for both
         comments = []
-        for entry in task.get("history", []):
+        for entry in issue.get("history", []):
             if entry.get("event") == "comment":
                 comments.append({
                     "comment_id": entry.get("comment_id", ""),  # Backwards compatible
@@ -364,9 +383,22 @@ class BoardClient:
         to_superagent: bool = False,
         keep_existing: bool = False,
     ) -> str:
-        logger.info(f"Reassigning task {task_id} to {new_assignee_id or 'superagent'} (agent: {self.agent_id})")
         """
-        Reassign a task. If to_superagent is True, ignore new_assignee_id and
+        Reassign a task.
+        DEPRECATED: Use reassign_issue() instead. Kept for backwards compatibility.
+        """
+        return self.reassign_issue(task_id, new_assignee_id, to_superagent, keep_existing)
+
+    def reassign_issue(
+        self,
+        issue_id: str,
+        new_assignee_id: str | None = None,
+        to_superagent: bool = False,
+        keep_existing: bool = False,
+    ) -> str:
+        logger.info(f"Reassigning issue {issue_id} to {new_assignee_id or 'superagent'} (agent: {self.agent_id})")
+        """
+        Reassign an issue. If to_superagent is True, ignore new_assignee_id and
         reassign to the board's default superagent.
         """
         if to_superagent:
@@ -380,8 +412,8 @@ class BoardClient:
         if new_assignee_id not in self._agent_index:
             raise BoardError(f"Unknown assignee id '{new_assignee_id}'")
 
-        path, task = self.find_task(task_id)
-        assignees = set(task.get("assignees") or [])
+        path, issue = self.find_issue(issue_id)
+        assignees = set(issue.get("assignees") or [])
 
         if not keep_existing:
             # Remove all existing assignees, including self
@@ -394,17 +426,17 @@ class BoardClient:
             assignees.add(new_assignee_id)
             changed = f"{old_assignees} -> {sorted(assignees)}"
 
-        task["assignees"] = sorted(assignees)
-        task["updated_at"] = now_iso()
-        task.setdefault("history", []).append(
+        issue["assignees"] = sorted(assignees)
+        issue["updated_at"] = now_iso()
+        issue.setdefault("history", []).append(
             {
-                "at": task["updated_at"],
+                "at": issue["updated_at"],
                 "by": self.agent_id,
                 "event": "reassigned",
                 "details": changed,
             }
         )
-        save_yaml(path, task)
+        save_yaml(path, issue)
         
         # Create assignment events for newly assigned agents
         if not keep_existing:
@@ -415,11 +447,11 @@ class BoardClient:
                         from crewkan.board_events import create_assignment_event
                         create_assignment_event(
                             board_root=self.root,
-                            task_id=task_id,
+                            task_id=issue_id,  # Events still use task_id for now
                             assigned_to=assignee,
                             assigned_by=self.agent_id,
                         )
-                        logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                        logger.info(f"Created assignment event for issue {issue_id}, notifying {assignee}")
                     except Exception as e:
                         logger.warning(f"Failed to create assignment event: {e}")
         else:
@@ -431,15 +463,15 @@ class BoardClient:
                         from crewkan.board_events import create_assignment_event
                         create_assignment_event(
                             board_root=self.root,
-                            task_id=task_id,
+                            task_id=issue_id,  # Events still use task_id for now
                             assigned_to=assignee,
                             assigned_by=self.agent_id,
                         )
-                        logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                        logger.info(f"Created assignment event for issue {issue_id}, notifying {assignee}")
                     except Exception as e:
                         logger.warning(f"Failed to create assignment event: {e}")
         
-        return f"Reassigned task {task_id}: {changed}"
+        return f"Reassigned issue {issue_id}: {changed}"
 
     def create_task(
         self,
@@ -453,7 +485,48 @@ class BoardClient:
         requested_by: str | None = None,
     ) -> str:
         """
-        Create a new task. Returns the new task id.
+        Create a new task.
+        DEPRECATED: Use create_issue() instead. Kept for backwards compatibility.
+        Creates issue with default issue_type="task".
+        """
+        return self.create_issue(
+            title=title,
+            description=description,
+            column=column,
+            assignees=assignees,
+            priority=priority,
+            tags=tags,
+            due_date=due_date,
+            requested_by=requested_by,
+            issue_type="task",  # Default for backwards compatibility
+        )
+
+    def create_issue(
+        self,
+        title: str,
+        description: str = "",
+        column: str = "backlog",
+        assignees: list[str] | None = None,
+        priority: str | None = None,
+        tags: list[str] | None = None,
+        due_date: str | None = None,
+        requested_by: str | None = None,
+        issue_type: str | None = None,
+    ) -> str:
+        """
+        Create a new issue. Returns the new issue id.
+        
+        Args:
+            title: Issue title
+            description: Issue description
+            column: Target column (default: "backlog")
+            assignees: List of assignee agent IDs (default: current agent)
+            priority: Priority level (default: from board settings)
+            tags: List of tags
+            due_date: Due date string
+            requested_by: Agent who requested this issue (default: current agent)
+            issue_type: Type of issue - epic, user_story, task, bug, feature, improvement
+                       (default: from board settings or "task")
         """
         if column not in self.columns:
             raise BoardError(f"Unknown column '{column}'")
@@ -463,19 +536,25 @@ class BoardClient:
             if a not in self._agent_index:
                 raise BoardError(f"Unknown assignee id '{a}'")
 
-        prefix = self.settings.get("task_filename_prefix", "T")
-        task_id: str = generate_task_id(prefix)
+        # Use issue_filename_prefix if available, otherwise task_filename_prefix for backwards compatibility
+        prefix = self.settings.get("issue_filename_prefix") or self.settings.get("task_filename_prefix", "I")
+        issue_id: str = generate_issue_id(prefix)
         created_at = now_iso()
 
         # Determine requested_by (use parameter if provided, otherwise use creating agent)
         requested_by_agent = requested_by if requested_by is not None else self.agent_id
         
-        task = {
-            "id": task_id,
+        # Determine issue_type (use parameter, then board default, then "task")
+        default_issue_type = self.settings.get("default_issue_type", "task")
+        final_issue_type = issue_type or default_issue_type
+        
+        issue = {
+            "id": issue_id,
             "title": title,
             "description": description or "",
             "status": column,
             "column": column,
+            "issue_type": final_issue_type,
             "priority": priority or self.settings.get("default_priority", "medium"),
             "tags": tags or [],
             "assignees": assignees,
@@ -483,22 +562,23 @@ class BoardClient:
             "created_at": created_at,
             "updated_at": created_at,
             "due_date": due_date,
-            "requested_by": requested_by_agent,  # Track who requested this task
+            "requested_by": requested_by_agent,  # Track who requested this issue
             "history": [
                 {
                     "at": created_at,
                     "by": self.agent_id,
                     "event": "created",
-                    "details": f"Task created in column {column}",
+                    "details": f"Issue created in column {column}",
                 }
             ],
         }
 
-        col_dir = self.tasks_root / column
+        # Use issues/ directory for new issues
+        col_dir = self.issues_root / column
         col_dir.mkdir(parents=True, exist_ok=True)
-        path = col_dir / f"{task_id}.yaml"
-        save_yaml(path, task)
-        logger.debug(f"Created task {task_id} at {path}")
+        path = col_dir / f"{issue_id}.yaml"
+        save_yaml(path, issue)
+        logger.debug(f"Created issue {issue_id} at {path}")
         
         # Create assignment events for assigned agents (except creator)
         for assignee in assignees:
@@ -507,15 +587,15 @@ class BoardClient:
                     from crewkan.board_events import create_assignment_event
                     create_assignment_event(
                         board_root=self.root,
-                        task_id=task_id,
+                        task_id=issue_id,  # Events still use task_id for now
                         assigned_to=assignee,
                         assigned_by=self.agent_id,
                     )
-                    logger.info(f"Created assignment event for task {task_id}, notifying {assignee}")
+                    logger.info(f"Created assignment event for issue {issue_id}, notifying {assignee}")
                 except Exception as e:
                     logger.warning(f"Failed to create assignment event: {e}")
         
-        return task_id
+        return issue_id
 
     # ------------------------------------------------------------------
     # Workspace symlinks (optional for LangChain but handy)

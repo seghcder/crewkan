@@ -68,7 +68,10 @@ def init_board(
         "columns": columns,
         "settings": {
             "default_priority": "medium",
-            "task_filename_prefix": "T",
+            "task_filename_prefix": "T",  # Keep for backwards compatibility
+            "issue_filename_prefix": "I",  # New default for issues
+            "default_issue_type": "task",  # Default issue type
+            "issue_types": ["epic", "user_story", "task", "bug", "feature", "improvement"],  # Available issue types
             "timezone": "UTC",
             "default_superagent_id": default_superagent_id,
             "owner_agent_id": owner_agent_id,
@@ -107,11 +110,13 @@ def init_board(
     (root / "agents").mkdir(parents=True, exist_ok=True)
     save_yaml(root / "agents" / "agents.yaml", agents_data)
 
-    # Create task directories
-    (root / "tasks").mkdir(parents=True, exist_ok=True)
+    # Create issue directories (new) and task directories (for backwards compatibility)
+    (root / "issues").mkdir(parents=True, exist_ok=True)
+    (root / "tasks").mkdir(parents=True, exist_ok=True)  # Keep for backwards compatibility
     for col in columns:
         col_id = col["id"]
-        (root / "tasks" / col_id).mkdir(parents=True, exist_ok=True)
+        (root / "issues" / col_id).mkdir(parents=True, exist_ok=True)
+        (root / "tasks" / col_id).mkdir(parents=True, exist_ok=True)  # Keep for backwards compatibility
 
     # Create workspaces and archive directories
     (root / "workspaces").mkdir(parents=True, exist_ok=True)
