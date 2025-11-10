@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-LangGraph example: CEO delegating tasks to multiple agents working in parallel.
+LangGraph example: CEO delegating issues to multiple agents working in parallel.
 
 This demonstrates:
-1. CEO agent generating tasks dynamically using GenAI
-2. Multiple worker agents processing tasks continuously in parallel
-3. Long-running workflow where agents process tasks: backlog→todo→doing→done
-4. Priority-based task selection (AI-generated priorities)
-5. Work resumption support - can restart and continue from where it left off
-6. All agents run independently in parallel
+1. CEO agent generating issues dynamically using GenAI
+2. Multiple worker agents processing issues continuously in parallel
+3. Long-running workflow where agents process issues: backlog→todo→doing→done
+4. Priority-based issue selection (AI-generated priorities)
+5. Issue types: epic, user_story, task, bug, feature, improvement
+6. Work resumption support - can restart and continue from where it left off
+7. All agents run independently in parallel
 """
 
 import os
@@ -670,11 +671,11 @@ async def main():
     graph = create_delegation_graph(str(board_root))
     
     initial_state = {
-        "messages": [{"role": "user", "content": "Start continuous task processing workflow"}],
+        "messages": [{"role": "user", "content": "Start continuous issue processing workflow"}],
         "agent_id": "system",
-        "task_id": None,
+        "issue_id": None,
         "board_root": str(board_root),
-        "last_task_gen_time": 0.0,
+        "last_issue_gen_time": 0.0,
         "should_exit": False,
     }
     
@@ -687,10 +688,10 @@ async def main():
     
     print("=" * 60)
     print("Starting CEO delegation workflow...")
-    print("CEO will generate tasks dynamically using GenAI")
-    print("Agents will process tasks: backlog → todo → doing → done")
-    print("Each task takes 2-5 seconds to complete (random)")
-    print("CEO generates new tasks every second if backlog < 15")
+    print("CEO will generate issues dynamically using GenAI")
+    print("Agents will process issues: backlog → todo → doing → done")
+    print("Each issue takes 2-5 seconds to complete (random)")
+    print("CEO generates new issues every second if backlog < 15")
     print("All agents run independently in parallel")
     print("=" * 60)
     
@@ -709,13 +710,13 @@ async def main():
         
         # Show progress periodically
         if iteration % 5 == 0:
-            counts = count_tasks_by_status(str(board_root))
+            counts = count_issues_by_status(str(board_root))
             print(f"\n📊 Progress: {counts}")
     
     # Final status
     print("\n" + "=" * 60)
     print("Workflow completed!")
-    final_counts = count_tasks_by_status(str(board_root))
+    final_counts = count_issues_by_status(str(board_root))
     print(f"Final status: {final_counts}")
     print("=" * 60)
 

@@ -3,8 +3,8 @@
 Extended test for CEO delegation workflow.
 
 This test verifies:
-- CEO generates tasks dynamically using GenAI
-- Workers process tasks with clarification requests
+- CEO generates issues dynamically using GenAI
+- Workers process issues with clarification requests
 - Comments are generated with IDs
 - Work resumption after interruption
 - All agents work independently in parallel
@@ -31,12 +31,12 @@ load_dotenv()
 from crewkan.board_core import BoardClient
 
 
-def count_tasks_by_status(board_root: str) -> dict[str, int]:
-    """Count tasks in each column."""
+def count_issues_by_status(board_root: str) -> dict[str, int]:
+    """Count issues in each column."""
     client = BoardClient(board_root, "ceo")
     counts = {}
-    for path, task in client.iter_tasks():
-        column = task.get("column", "unknown")
+    for path, issue in client.iter_issues():
+        column = issue.get("column", "unknown")
         counts[column] = counts.get(column, 0) + 1
     return counts
 
@@ -63,7 +63,7 @@ def test_ceo_delegation_workflow():
         shutil.rmtree(board_root)
     
     print("Starting CEO delegation workflow test...")
-    print("This will run for 30 seconds to verify task generation and processing...")
+    print("This will run for 30 seconds to verify issue generation and processing...")
     
     # Start the workflow
     process = subprocess.Popen(
@@ -115,28 +115,28 @@ def test_ceo_delegation_workflow():
         print("❌ Board not created - test failed")
         return False
     
-    counts = count_tasks_by_status(str(board_root))
-    print(f"\nTask counts: {counts}")
+    counts = count_issues_by_status(str(board_root))
+    print(f"\nIssue counts: {counts}")
     
-    # Check that tasks were created and processed
-    total_tasks = sum(counts.values())
-    if total_tasks == 0:
-        print("❌ No tasks created - test failed")
+    # Check that issues were created and processed
+    total_issues = sum(counts.values())
+    if total_issues == 0:
+        print("❌ No issues created - test failed")
         return False
     
-    # Check that some tasks were completed
+    # Check that some issues were completed
     done_count = counts.get("done", 0)
-    if done_count == 0 and total_tasks > 5:
-        print("⚠️  No tasks completed, but tasks were created")
+    if done_count == 0 and total_issues > 5:
+        print("⚠️  No issues completed, but issues were created")
         # Not a failure, but note it
     
     # Verify comments have IDs
     client = BoardClient(str(board_root), "ceo")
-    tasks_with_comments = 0
-    for path, task in client.iter_tasks():
-        comments = client.get_comments(task.get("id"))
+    issues_with_comments = 0
+    for path, issue in client.iter_issues():
+        comments = client.get_comments(issue.get("id"))
         if comments:
-            tasks_with_comments += 1
+            issues_with_comments += 1
             # Verify comment structure
             for comment in comments:
                 if not comment.get("comment_id", "").startswith("C-"):
@@ -149,13 +149,13 @@ def test_ceo_delegation_workflow():
                     print(f"❌ Comment missing 'at' field: {comment}")
                     return False
     
-    if tasks_with_comments > 0:
-        print(f"✓ Verified {tasks_with_comments} task(s) have comments with IDs")
+    if issues_with_comments > 0:
+        print(f"✓ Verified {issues_with_comments} issue(s) have comments with IDs")
     
     # Check for clarification comments (should have reasonable content)
     clarification_found = False
-    for path, task in client.iter_tasks():
-        comments = client.get_comments(task.get("id"))
+    for path, issue in client.iter_issues():
+        comments = client.get_comments(issue.get("id"))
         for comment in comments:
             details = comment.get("details", "").lower()
             if "clarification" in details or "question" in details or "need" in details:
@@ -164,12 +164,12 @@ def test_ceo_delegation_workflow():
                     print(f"✓ Found clarification comment: {comment.get('details', '')[:100]}...")
                     break
     
-    if not clarification_found and total_tasks > 10:
+    if not clarification_found and total_issues > 10:
         print("⚠️  No clarification comments found (may be normal if random chance didn't trigger)")
     
     print(f"\n✓ CEO delegation test completed successfully")
-    print(f"  - Total tasks: {total_tasks}")
-    print(f"  - Tasks with comments: {tasks_with_comments}")
+    print(f"  - Total issues: {total_issues}")
+    print(f"  - Issues with comments: {issues_with_comments}")
     print(f"  - Done: {done_count}")
     
     return True
