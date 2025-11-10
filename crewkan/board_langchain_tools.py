@@ -16,38 +16,38 @@ logger = logging.getLogger(__name__)
 # Pydantic schemas for tools
 # -----------------------------
 
-class ListMyTasksInput(BaseModel):
+class ListMyIssuesInput(BaseModel):
     column: Optional[str] = Field(
         default=None,
-        description="Optional column id to filter tasks (e.g. 'todo', 'doing', 'done').",
+        description="Optional column id to filter issues (e.g. 'todo', 'doing', 'done').",
     )
     limit: int = Field(
         default=50,
-        description="Maximum number of tasks to return.",
+        description="Maximum number of issues to return.",
     )
 
 
-class MoveTaskInput(BaseModel):
-    task_id: str = Field(..., description="The id of the task to move.")
+class MoveIssueInput(BaseModel):
+    issue_id: str = Field(..., description="The id of the issue to move.")
     new_column: str = Field(..., description="Target column id (e.g. 'doing', 'done').")
 
 
-class UpdateTaskFieldInput(BaseModel):
-    task_id: str = Field(..., description="The id of the task to update.")
+class UpdateIssueFieldInput(BaseModel):
+    issue_id: str = Field(..., description="The id of the issue to update.")
     field: str = Field(
         ...,
-        description="Field to update: 'title', 'description', 'priority', or 'due_date'.",
+        description="Field to update: 'title', 'description', 'issue_type', 'priority', or 'due_date'.",
     )
     value: str = Field(..., description="New value for the field.")
 
 
 class AddCommentInput(BaseModel):
-    task_id: str = Field(..., description="The id of the task to comment on.")
+    issue_id: str = Field(..., description="The id of the issue to comment on.")
     comment: str = Field(..., description="The comment text.")
 
 
-class ReassignTaskInput(BaseModel):
-    task_id: str = Field(..., description="The id of the task to reassign.")
+class ReassignIssueInput(BaseModel):
+    issue_id: str = Field(..., description="The id of the issue to reassign.")
     new_assignee_id: Optional[str] = Field(
         default=None,
         description="New assignee id. Ignored if to_superagent is true.",
@@ -62,15 +62,15 @@ class ReassignTaskInput(BaseModel):
     )
 
 
-class CreateTaskInput(BaseModel):
-    title: str = Field(..., description="Title of the new task.")
+class CreateIssueInput(BaseModel):
+    title: str = Field(..., description="Title of the new issue.")
     description: Optional[str] = Field(
         default="",
-        description="Description of the new task.",
+        description="Description of the new issue.",
     )
     column: str = Field(
         default="backlog",
-        description="Column id to create the task in (e.g. 'backlog', 'todo').",
+        description="Column id to create the issue in (e.g. 'backlog', 'todo').",
     )
     assignees: Optional[List[str]] = Field(
         default=None,
@@ -79,6 +79,10 @@ class CreateTaskInput(BaseModel):
     priority: Optional[str] = Field(
         default=None,
         description="Priority (low, medium, high).",
+    )
+    issue_type: Optional[str] = Field(
+        default=None,
+        description="Issue type: epic, user_story, task, bug, feature, improvement.",
     )
     tags: Optional[List[str]] = Field(
         default=None,
@@ -90,7 +94,7 @@ class CreateTaskInput(BaseModel):
     )
     requested_by: Optional[str] = Field(
         default=None,
-        description="Agent ID that requested this task (for completion notifications).",
+        description="Agent ID that requested this issue (for completion notifications).",
     )
 
 
@@ -105,54 +109,54 @@ def make_board_tools(board_root: str, agent_id: str) -> list[BaseTool]:
     """
     client = BoardClient(board_root, agent_id)
 
-    def list_my_tasks_tool(column: Optional[str] = None, limit: int = 50) -> str:
+    def list_my_issues_tool(column: Optional[str] = None, limit: int = 50) -> str:
         """
-        Return tasks assigned to this agent as JSON.
+        Return issues assigned to this agent as JSON.
         """
         try:
-            return client.list_my_tasks(column=column, limit=limit)
+            return client.list_my_issues(column=column, limit=limit)
         except BoardError as e:
             return json.dumps({"error": str(e)})
 
-    def move_task_tool(task_id: str, new_column: str) -> str:
+    def move_issue_tool(issue_id: str, new_column: str) -> str:
         """
-        Move a task to another column.
+        Move an issue to another column.
         """
         try:
-            return client.move_task(task_id, new_column)
+            return client.move_issue(issue_id, new_column)
         except BoardError as e:
             return f"ERROR: {e}"
 
-    def update_task_field_tool(task_id: str, field: str, value: str) -> str:
+    def update_issue_field_tool(issue_id: str, field: str, value: str) -> str:
         """
-        Update one top-level field on a task (title, description, priority, due_date).
+        Update one top-level field on an issue (title, description, issue_type, priority, due_date).
         """
         try:
-            return client.update_task_field(task_id, field, value)
+            return client.update_issue_field(issue_id, field, value)
         except BoardError as e:
             return f"ERROR: {e}"
 
-    def add_comment_tool(task_id: str, comment: str) -> str:
+    def add_comment_tool(issue_id: str, comment: str) -> str:
         """
-        Add a comment to a task's history.
+        Add a comment to an issue's history.
         """
         try:
-            return client.add_comment(task_id, comment)
+            return client.add_comment(issue_id, comment)
         except BoardError as e:
             return f"ERROR: {e}"
 
-    def reassign_task_tool(
-        task_id: str,
+    def reassign_issue_tool(
+        issue_id: str,
         new_assignee_id: Optional[str] = None,
         to_superagent: bool = False,
         keep_existing: bool = False,
     ) -> str:
         """
-        Reassign a task to another agent or to the default superagent.
+        Reassign an issue to another agent or to the default superagent.
         """
         try:
-            return client.reassign_task(
-                task_id=task_id,
+            return client.reassign_issue(
+                issue_id=issue_id,
                 new_assignee_id=new_assignee_id,
                 to_superagent=to_superagent,
                 keep_existing=keep_existing,
@@ -160,87 +164,90 @@ def make_board_tools(board_root: str, agent_id: str) -> list[BaseTool]:
         except BoardError as e:
             return f"ERROR: {e}"
 
-    def create_task_tool(
+    def create_issue_tool(
         title: str,
         description: str = "",
         column: str = "backlog",
         assignees: Optional[List[str]] = None,
         priority: Optional[str] = None,
+        issue_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
         due_date: Optional[str] = None,
         requested_by: Optional[str] = None,
     ) -> str:
         """
-        Create a new task and return its id.
+        Create a new issue and return its id.
         """
         try:
-            task_id = client.create_task(
+            issue_id = client.create_issue(
                 title=title,
                 description=description,
                 column=column,
                 assignees=assignees,
                 priority=priority,
+                issue_type=issue_type,
                 tags=tags,
                 due_date=due_date,
                 requested_by=requested_by or agent_id,  # Default to current agent if not specified
             )
-            return f"Created task {task_id}"
+            return f"Created issue {issue_id}"
         except BoardError as e:
             return f"ERROR: {e}"
 
     tools: list[BaseTool] = [
         StructuredTool.from_function(
-            name="list_my_tasks",
-            func=list_my_tasks_tool,
-            args_schema=ListMyTasksInput,
+            name="list_my_issues",
+            func=list_my_issues_tool,
+            args_schema=ListMyIssuesInput,
             description=(
-                "List tasks assigned to this agent, optionally filtered by column. "
-                "Returns a JSON list of task summaries."
+                "List issues assigned to this agent, optionally filtered by column. "
+                "Returns a JSON list of issue summaries."
             ),
         ),
         StructuredTool.from_function(
-            name="move_task",
-            func=move_task_tool,
-            args_schema=MoveTaskInput,
+            name="move_issue",
+            func=move_issue_tool,
+            args_schema=MoveIssueInput,
             description=(
-                "Move a task to another column on the board. "
-                "Use this when changing task status, such as moving from 'todo' to 'doing' or 'done'."
+                "Move an issue to another column on the board. "
+                "Use this when changing issue status, such as moving from 'todo' to 'doing' or 'done'."
             ),
         ),
         StructuredTool.from_function(
-            name="update_task_field",
-            func=update_task_field_tool,
-            args_schema=UpdateTaskFieldInput,
+            name="update_issue_field",
+            func=update_issue_field_tool,
+            args_schema=UpdateIssueFieldInput,
             description=(
-                "Update a single top-level field on a task. "
-                "Allowed fields: title, description, priority, due_date."
+                "Update a single top-level field on an issue. "
+                "Allowed fields: title, description, issue_type, priority, due_date."
             ),
         ),
         StructuredTool.from_function(
-            name="add_comment_to_task",
+            name="add_comment_to_issue",
             func=add_comment_tool,
             args_schema=AddCommentInput,
             description=(
-                "Add a comment to a task. "
+                "Add a comment to an issue. "
                 "Use this to record progress, decisions, or questions."
             ),
         ),
         StructuredTool.from_function(
-            name="reassign_task",
-            func=reassign_task_tool,
-            args_schema=ReassignTaskInput,
+            name="reassign_issue",
+            func=reassign_issue_tool,
+            args_schema=ReassignIssueInput,
             description=(
-                "Reassign a task to another agent or to the default superagent. "
+                "Reassign an issue to another agent or to the default superagent. "
                 "Set to_superagent=true to escalate to the board's default superagent."
             ),
         ),
         StructuredTool.from_function(
-            name="create_task",
-            func=create_task_tool,
-            args_schema=CreateTaskInput,
+            name="create_issue",
+            func=create_issue_tool,
+            args_schema=CreateIssueInput,
             description=(
-                "Create a new task on the board. "
-                "If assignees are omitted, the current agent will be assigned."
+                "Create a new issue on the board. "
+                "If assignees are omitted, the current agent will be assigned. "
+                "Issue types: epic, user_story, task, bug, feature, improvement."
             ),
         ),
     ]
