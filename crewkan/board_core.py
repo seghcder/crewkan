@@ -57,9 +57,7 @@ class BoardClient:
 
         self.columns = [c["id"] for c in self.board.get("columns", [])]
         self.settings = self.board.get("settings", {})
-        # Support both tasks/ (old) and issues/ (new) directories
-        self.tasks_root = self.root / "tasks"  # Keep for backwards compatibility
-        self.issues_root = self.root / "issues"  # New primary directory
+        self.issues_root = self.root / "issues"
         self.workspaces_root = self.root / "workspaces"
 
     # ------------------------------------------------------------------
@@ -94,91 +92,41 @@ class BoardClient:
         """Get list of all agents on the board."""
         return list(self._agent_index.values())
     
-    def get_task_details(self, task_id: str) -> dict:
-        """Get full task details including history/comments.
-        DEPRECATED: Use get_issue_details() instead. Kept for backwards compatibility.
-        """
-        return self.get_issue_details(task_id)
-
     def get_issue_details(self, issue_id: str) -> dict:
         """Get full issue details including history/comments."""
         path, issue = self.find_issue(issue_id)
         return issue
 
     # ------------------------------------------------------------------
-    # Task discovery
+    # Issue discovery
     # ------------------------------------------------------------------
-
-    def iter_tasks(self):
-        """
-        Yield (path, data) for all task YAML files.
-        DEPRECATED: Use iter_issues() instead. Kept for backwards compatibility.
-        """
-        # Check issues/ first (new), then tasks/ (old)
-        if self.issues_root.exists():
-            for path in self.issues_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict):
-                    yield path, data
-        if self.tasks_root.exists():
-            for path in self.tasks_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict):
-                    yield path, data
 
     def iter_issues(self):
         """
         Yield (path, data) for all issue YAML files.
-        Checks issues/ directory first, then tasks/ for backwards compatibility.
         """
-        # Check issues/ first (new), then tasks/ (old)
-        if self.issues_root.exists():
-            for path in self.issues_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict):
-                    yield path, data
-        if self.tasks_root.exists():
-            for path in self.tasks_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict):
-                    yield path, data
-
-    def find_task(self, task_id: str) -> tuple[Path, dict]:
-        """
-        Locate a task by id. Returns (path, data) or raises BoardError.
-        DEPRECATED: Use find_issue() instead. Kept for backwards compatibility.
-        """
-        return self.find_issue(task_id)
+        if not self.issues_root.exists():
+            return
+        for path in self.issues_root.rglob("*.yaml"):
+            data = load_yaml(path)
+            if isinstance(data, dict):
+                yield path, data
 
     def find_issue(self, issue_id: str) -> tuple[Path, dict]:
         """
         Locate an issue by id. Returns (path, data) or raises BoardError.
-        Checks issues/ directory first, then tasks/ for backwards compatibility.
         """
-        # Check issues/ first (new)
-        if self.issues_root.exists():
-            for path in self.issues_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict) and data.get("id") == issue_id:
-                    return path, data
-        # Fall back to tasks/ (old)
-        if self.tasks_root.exists():
-            for path in self.tasks_root.rglob("*.yaml"):
-                data = load_yaml(path)
-                if isinstance(data, dict) and data.get("id") == issue_id:
-                    return path, data
+        if not self.issues_root.exists():
+            raise BoardError(f"Issue '{issue_id}' not found (issues directory does not exist)")
+        for path in self.issues_root.rglob("*.yaml"):
+            data = load_yaml(path)
+            if isinstance(data, dict) and data.get("id") == issue_id:
+                return path, data
         raise BoardError(f"Issue '{issue_id}' not found")
 
     # ------------------------------------------------------------------
     # Public operations used by tools
     # ------------------------------------------------------------------
-
-    def list_my_tasks(self, column: str | None = None, limit: int = 50) -> str:
-        """
-        Return tasks assigned to this agent, optionally filtered by column.
-        DEPRECATED: Use list_my_issues() instead. Kept for backwards compatibility.
-        """
-        return self.list_my_issues(column, limit)
 
     def list_my_issues(self, column: str | None = None, limit: int = 50) -> str:
         """
@@ -198,7 +146,7 @@ class BoardClient:
                     "id": issue.get("id"),
                     "title": issue.get("title"),
                     "column": issue.get("column"),
-                    "issue_type": issue.get("issue_type", "task"),  # Default to "task" for backwards compatibility
+                    "issue_type": issue.get("issue_type", "task"),
                     "priority": issue.get("priority"),
                     "assignees": assignees,
                     "due_date": issue.get("due_date"),
@@ -209,13 +157,6 @@ class BoardClient:
                 break
 
         return json.dumps(results, indent=2)
-
-    def move_task(self, task_id: str, new_column: str, notify_on_completion: bool = True) -> str:
-        """
-        Move a task to another column.
-        DEPRECATED: Use move_issue() instead. Kept for backwards compatibility.
-        """
-        return self.move_issue(task_id, new_column, notify_on_completion)
 
     def move_issue(self, issue_id: str, new_column: str, notify_on_completion: bool = True) -> str:
         logger.info(f"Moving issue {issue_id} to column {new_column} (agent: {self.agent_id})")
@@ -248,12 +189,8 @@ class BoardClient:
             }
         )
 
-        # Determine target directory (issues/ for new, tasks/ for old)
-        # If issue is in issues/, move to issues/; if in tasks/, move to tasks/
-        if "issues" in str(path):
-            new_dir = self.issues_root / new_column
-        else:
-            new_dir = self.tasks_root / new_column
+        # Move within issues/ directory
+        new_dir = self.issues_root / new_column
         new_dir.mkdir(parents=True, exist_ok=True)
         new_path = new_dir / path.name
 
@@ -282,7 +219,7 @@ class BoardClient:
                     from crewkan.board_events import create_completion_event
                     create_completion_event(
                         board_root=self.root,
-                        task_id=issue_id,  # Events still use task_id for now
+                        issue_id=issue_id,
                         completed_by=self.agent_id,
                         notify_agent=notify_agent,
                     )
@@ -292,13 +229,6 @@ class BoardClient:
 
         logger.debug(f"Moved issue {issue_id} from {old_column} to {new_column}")
         return f"Moved issue {issue_id} from '{old_column}' to '{new_column}'."
-
-    def update_task_field(self, task_id: str, field: str, value: str) -> str:
-        """
-        Update a simple top-level field.
-        DEPRECATED: Use update_issue_field() instead. Kept for backwards compatibility.
-        """
-        return self.update_issue_field(task_id, field, value)
 
     def update_issue_field(self, issue_id: str, field: str, value: str) -> str:
         logger.info(f"Updating issue {issue_id} field {field} (agent: {self.agent_id})")
@@ -336,15 +266,14 @@ class BoardClient:
         save_yaml(path, issue)
         return f"Updated issue {issue_id} field '{field}' from '{old_value}' to '{issue[field]}'."
 
-    def add_comment(self, task_id: str, comment: str) -> str:
+    def add_comment(self, issue_id: str, comment: str) -> str:
         """
-        Add a new comment event.
-        Works with both tasks and issues (backwards compatible).
+        Add a new comment event to an issue.
         """
         import uuid
         from crewkan.utils import now_iso
         
-        path, issue = self.find_issue(task_id)  # find_issue works for both
+        path, issue = self.find_issue(issue_id)
         comment_id = f"C-{uuid.uuid4().hex[:8]}"
         issue["updated_at"] = now_iso()
         comment_entry = {
@@ -358,13 +287,12 @@ class BoardClient:
         save_yaml(path, issue)
         return comment_id
     
-    def get_comments(self, task_id: str) -> list[dict]:
+    def get_comments(self, issue_id: str) -> list[dict]:
         """
-        Get all comments for a task/issue.
-        Works with both tasks and issues (backwards compatible).
+        Get all comments for an issue.
         Returns a list of comment dictionaries with comment_id, at, by, and details.
         """
-        path, issue = self.find_issue(task_id)  # find_issue works for both
+        path, issue = self.find_issue(issue_id)
         comments = []
         for entry in issue.get("history", []):
             if entry.get("event") == "comment":
@@ -375,19 +303,6 @@ class BoardClient:
                     "details": entry.get("details", ""),
                 })
         return comments
-
-    def reassign_task(
-        self,
-        task_id: str,
-        new_assignee_id: str | None = None,
-        to_superagent: bool = False,
-        keep_existing: bool = False,
-    ) -> str:
-        """
-        Reassign a task.
-        DEPRECATED: Use reassign_issue() instead. Kept for backwards compatibility.
-        """
-        return self.reassign_issue(task_id, new_assignee_id, to_superagent, keep_existing)
 
     def reassign_issue(
         self,
@@ -447,7 +362,7 @@ class BoardClient:
                         from crewkan.board_events import create_assignment_event
                         create_assignment_event(
                             board_root=self.root,
-                            task_id=issue_id,  # Events still use task_id for now
+                            issue_id=issue_id,
                             assigned_to=assignee,
                             assigned_by=self.agent_id,
                         )
@@ -463,7 +378,7 @@ class BoardClient:
                         from crewkan.board_events import create_assignment_event
                         create_assignment_event(
                             board_root=self.root,
-                            task_id=issue_id,  # Events still use task_id for now
+                            issue_id=issue_id,
                             assigned_to=assignee,
                             assigned_by=self.agent_id,
                         )
@@ -472,34 +387,6 @@ class BoardClient:
                         logger.warning(f"Failed to create assignment event: {e}")
         
         return f"Reassigned issue {issue_id}: {changed}"
-
-    def create_task(
-        self,
-        title: str,
-        description: str = "",
-        column: str = "backlog",
-        assignees: list[str] | None = None,
-        priority: str | None = None,
-        tags: list[str] | None = None,
-        due_date: str | None = None,
-        requested_by: str | None = None,
-    ) -> str:
-        """
-        Create a new task.
-        DEPRECATED: Use create_issue() instead. Kept for backwards compatibility.
-        Creates issue with default issue_type="task".
-        """
-        return self.create_issue(
-            title=title,
-            description=description,
-            column=column,
-            assignees=assignees,
-            priority=priority,
-            tags=tags,
-            due_date=due_date,
-            requested_by=requested_by,
-            issue_type="task",  # Default for backwards compatibility
-        )
 
     def create_issue(
         self,
@@ -601,7 +488,7 @@ class BoardClient:
     # Workspace symlinks (optional for LangChain but handy)
     # ------------------------------------------------------------------
 
-    def _update_workspace_links(self, task_id: str, old_column: str, new_column: str):
+    def _update_workspace_links(self, issue_id: str, old_column: str, new_column: str):
         """
         If you are using per-agent workspaces with symlinks, you can keep them
         in sync here. This implementation is minimal: it renames the symlink
@@ -612,11 +499,11 @@ class BoardClient:
         if not agent_ws_root.exists():
             return
 
-        old_link = agent_ws_root / old_column / f"{task_id}.yaml"
+        old_link = agent_ws_root / old_column / f"{issue_id}.yaml"
         if old_link.is_symlink():
             target = old_link.resolve()
             old_link.unlink()
-            new_link = agent_ws_root / new_column / f"{task_id}.yaml"
+            new_link = agent_ws_root / new_column / f"{issue_id}.yaml"
             new_link.parent.mkdir(parents=True, exist_ok=True)
             new_link.symlink_to(target)
 

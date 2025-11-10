@@ -4,20 +4,20 @@
 File-based event system for CrewKan.
 
 Events are stored as YAML files in `events/<agent_id>/` directories.
-This allows agents to be notified of task completions, assignments, etc.
+This allows agents to be notified of issue completions, assignments, etc.
 without relying on any specific orchestration framework.
 
 Event Structure:
 {
     "id": "event-123",
-    "type": "task_completed",
-    "task_id": "T-456",
+    "type": "issue_completed",
+    "issue_id": "I-456",
     "created_at": "2025-01-01T12:00:00Z",
     "created_by": "worker1",
     "notify_agent": "ceo",
     "status": "pending",  # pending, read, archived
     "data": {
-        "task_title": "...",
+        "issue_title": "...",
         "completed_by": "worker1",
         "completion_notes": "..."
     }
@@ -27,7 +27,7 @@ Event Structure:
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
+from crewkan.utils import load_yaml, save_yaml, now_iso, generate_issue_id
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def create_event(
     events_dir = get_events_dir(board_root, notify_agent)
     events_dir.mkdir(parents=True, exist_ok=True)
     
-    event_id = event_id or generate_task_id(prefix="EVT")
+    event_id = event_id or generate_issue_id(prefix="EVT")
     event_file = events_dir / f"{event_id}.yaml"
     
     event = {
@@ -85,19 +85,19 @@ def create_event(
 
 def create_completion_event(
     board_root: str | Path,
-    task_id: str,
+    issue_id: str,
     completed_by: str,
     notify_agent: str,
     completion_notes: Optional[str] = None,
 ) -> str:
     """
-    Create a task completion event.
+    Create an issue completion event.
     
-    This is called when a task is moved to "done" to notify the original requestor.
+    This is called when an issue is moved to "done" to notify the original requestor.
     
     Args:
         board_root: Root directory of the board
-        task_id: ID of the completed task
+        issue_id: ID of the completed issue
         completed_by: Agent ID that completed the task
         notify_agent: Agent ID to notify (typically the original requestor)
         completion_notes: Optional notes about the completion
@@ -105,25 +105,25 @@ def create_completion_event(
     Returns:
         Event ID
     """
-    # Load task to get details
+    # Load issue to get details
     from crewkan.board_core import BoardClient, BoardError
     
     try:
         client = BoardClient(board_root, completed_by)
-        path, task = client.find_task(task_id)
+        path, issue = client.find_issue(issue_id)
         
         data = {
-            "task_id": task_id,
-            "task_title": task.get("title", ""),
-            "task_description": task.get("description", ""),
+            "issue_id": issue_id,
+            "issue_title": issue.get("title", ""),
+            "issue_description": issue.get("description", ""),
             "completed_by": completed_by,
             "completion_notes": completion_notes,
             "completed_at": now_iso(),
         }
     except BoardError:
-        # Task not found, create minimal event
+        # Issue not found, create minimal event
         data = {
-            "task_id": task_id,
+            "issue_id": issue_id,
             "completed_by": completed_by,
             "completion_notes": completion_notes,
             "completed_at": now_iso(),
@@ -131,7 +131,7 @@ def create_completion_event(
     
     return create_event(
         board_root=board_root,
-        event_type="task_completed",
+        event_type="issue_completed",
         notify_agent=notify_agent,
         created_by=completed_by,
         data=data,
@@ -303,46 +303,46 @@ def clear_all_events(
 
 def create_assignment_event(
     board_root: str | Path,
-    task_id: str,
+    issue_id: str,
     assigned_to: str,
     assigned_by: str,
     assignment_notes: Optional[str] = None,
 ) -> str:
     """
-    Create a task assignment event.
+    Create an issue assignment event.
     
-    This is called when a task is assigned to notify the assignee.
+    This is called when an issue is assigned to notify the assignee.
     
     Args:
         board_root: Root directory of the board
-        task_id: ID of the assigned task
-        assigned_to: Agent ID that was assigned the task
+        issue_id: ID of the assigned issue
+        assigned_to: Agent ID that was assigned the issue
         assigned_by: Agent ID that made the assignment
         assignment_notes: Optional notes about the assignment
     
     Returns:
         Event ID
     """
-    # Load task to get details
+    # Load issue to get details
     from crewkan.board_core import BoardClient, BoardError
     
     try:
         client = BoardClient(board_root, assigned_by)
-        path, task = client.find_task(task_id)
+        path, issue = client.find_issue(issue_id)
         
         data = {
-            "task_id": task_id,
-            "task_title": task.get("title", ""),
-            "task_description": task.get("description", ""),
+            "issue_id": issue_id,
+            "issue_title": issue.get("title", ""),
+            "issue_description": issue.get("description", ""),
             "assigned_to": assigned_to,
             "assigned_by": assigned_by,
             "assignment_notes": assignment_notes,
             "assigned_at": now_iso(),
         }
     except BoardError:
-        # Task not found, create minimal event
+        # Issue not found, create minimal event
         data = {
-            "task_id": task_id,
+            "issue_id": issue_id,
             "assigned_to": assigned_to,
             "assigned_by": assigned_by,
             "assignment_notes": assignment_notes,
@@ -351,7 +351,7 @@ def create_assignment_event(
     
     return create_event(
         board_root=board_root,
-        event_type="task_assigned",
+        event_type="issue_assigned",
         notify_agent=assigned_to,
         created_by=assigned_by,
         data=data,
