@@ -14,6 +14,10 @@ import shutil
 from pathlib import Path
 from typing import List, Dict
 import yaml
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from crewkan.board_init import init_board
 from crewkan.board_core import BoardClient, BoardError

@@ -11,15 +11,25 @@ import subprocess
 import sys
 from pathlib import Path
 import yaml
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def run_cli_command(cmd: list[str], board_dir: Path) -> tuple[int, str, str]:
     """Run a CLI command and return exit code, stdout, stderr."""
-    full_cmd = ["python", "-m", "crewkan.crewkan_cli", "--root", str(board_dir)] + cmd
+    # Set PYTHONPATH to include parent directory
+    env = os.environ.copy()
+    parent_dir = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = parent_dir + (os.pathsep + env.get("PYTHONPATH", ""))
+    
+    full_cmd = [sys.executable, "-m", "crewkan.crewkan_cli", "--root", str(board_dir)] + cmd
     result = subprocess.run(
         full_cmd,
         capture_output=True,
         text=True,
+        env=env,
     )
     return result.returncode, result.stdout, result.stderr
 
