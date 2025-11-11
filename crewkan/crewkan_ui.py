@@ -494,42 +494,26 @@ def main() -> None:
             // This script runs in an iframe, but we inject the listener into the main window
             try {
                 if (window.top && window.top !== window) {
-                    console.log('🔧 KANBAN: Injecting listener into main window from iframe');
-                    
                     // Inject script into main window
                     const script = window.top.document.createElement('script');
                     script.textContent = `
                         (function() {
-                            console.log('🔧 KANBAN: Listener script injected into main window');
-                            
                             function handleKanbanMessage(event) {
-                                console.log('📨 KANBAN: Listener received message');
-                                console.log('📨 KANBAN: Event data:', event.data);
-                                console.log('📨 KANBAN: Event origin:', event.origin);
-                                
                                 if (event.data && event.data.type === 'kanban_event') {
-                                    console.log('✅ KANBAN: Processing kanban_event');
                                     const kanbanEvent = event.data.event;
-                                    console.log('✅ KANBAN: Event details:', kanbanEvent);
-                                    
                                     const params = new URLSearchParams(window.location.search);
                                     params.set('kanban_event', JSON.stringify(kanbanEvent));
                                     const newUrl = window.location.pathname + '?' + params.toString();
-                                    console.log('🔄 KANBAN: Navigating to:', newUrl);
                                     window.location.href = newUrl;
-                                } else {
-                                    console.log('ℹ️ KANBAN: Ignoring message (not kanban_event)');
                                 }
                             }
                             
-                            // Add listener to main window
+                            // Add listener to main window (capture and bubble phases)
                             window.addEventListener('message', handleKanbanMessage, true);
                             window.addEventListener('message', handleKanbanMessage, false);
-                            console.log('✅ KANBAN: Listeners added to main window');
                         })();
                     `;
                     window.top.document.head.appendChild(script);
-                    console.log('✅ KANBAN: Script injected into main window');
                 } else {
                     console.warn('⚠️ KANBAN: Cannot access window.top');
                 }
