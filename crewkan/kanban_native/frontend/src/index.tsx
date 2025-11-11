@@ -9,6 +9,8 @@ let tasks: any[] = [];
 let height: number = 800;
 let draggedTask: HTMLElement | null = null;
 let draggedFromColumn: string | null = null;
+let lastFrameHeight: number = 0;
+let lastRenderData: string = "";  // For detecting actual data changes
 
 // Initialize component
 function initComponent() {
@@ -26,19 +28,33 @@ function initComponent() {
     Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, (event: any) => {
         const renderData = event.detail;
         const args = renderData.args || {};
-        columns = args.columns || [];
-        tasks = args.tasks || [];
-        height = args.height || 800;
+        const newColumns = args.columns || [];
+        const newTasks = args.tasks || [];
+        const newHeight = args.height || 800;
         
-        // Set container height
-        document.body.style.height = height + 'px';
-        container.style.height = height + 'px';
+        // Create a hash of the data to detect actual changes
+        const dataHash = JSON.stringify({columns: newColumns, tasks: newTasks});
         
-        // Update frame height
-        Streamlit.setFrameHeight(height);
+        // Only update if data actually changed
+        if (dataHash !== lastRenderData) {
+            lastRenderData = dataHash;
+            columns = newColumns;
+            tasks = newTasks;
+            height = newHeight;
+            
+            // Set container height
+            document.body.style.height = height + 'px';
+            container.style.height = height + 'px';
+            
+            // Render the board
+            renderBoard();
+        }
         
-        // Render the board
-        renderBoard();
+        // Only update frame height if it changed
+        if (newHeight !== lastFrameHeight) {
+            lastFrameHeight = newHeight;
+            Streamlit.setFrameHeight(newHeight);
+        }
     });
 }
 
@@ -121,8 +137,11 @@ function renderBoard() {
         container.appendChild(columnDiv);
     });
     
-    // Update frame height after rendering
-    Streamlit.setFrameHeight(height);
+    // Only update frame height if it changed (avoid unnecessary reruns)
+    if (height !== lastFrameHeight) {
+        lastFrameHeight = height;
+        Streamlit.setFrameHeight(height);
+    }
 }
 
 // Escape HTML to prevent XSS

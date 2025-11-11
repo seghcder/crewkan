@@ -655,6 +655,10 @@ def main() -> None:
     # Process kanban component return value (bi-directional component)
     # The component returns events directly, no need for query params or postMessage
 
+    # Initialize event tracking in session state
+    if "kanban_processed_events" not in st.session_state:
+        st.session_state["kanban_processed_events"] = set()
+    
     # Render native kanban board and get return value
     try:
         result = kanban_board(
@@ -665,52 +669,68 @@ def main() -> None:
         )
         
         # Process component return value (events from drag-drop or clicks)
+        # Only process if we haven't seen this event before (deduplicate)
         if result:
-            logger.info(f"🎯 Kanban component returned: {result}")
-            event_type = result.get("type")
+            # Create unique event ID from event data
+            event_id = f"{result.get('type')}_{result.get('taskId')}_{result.get('timestamp', 0)}"
             
-            if event_type == "move":
-                task_id = result.get("taskId")
-                from_column = result.get("fromColumn")
-                to_column = result.get("toColumn")
+            # Skip if we've already processed this event
+            if event_id in st.session_state["kanban_processed_events"]:
+                logger.debug(f"⏭️ Skipping duplicate event: {event_id}")
+            else:
+                # Mark as processed
+                st.session_state["kanban_processed_events"].add(event_id)
+                # Keep only last 100 events to prevent memory growth
+                if len(st.session_state["kanban_processed_events"]) > 100:
+                    oldest = min(st.session_state["kanban_processed_events"], 
+                                key=lambda x: int(x.split('_')[-1]) if x.split('_')[-1].isdigit() else 0)
+                    st.session_state["kanban_processed_events"].discard(oldest)
                 
-                logger.info(f"🔄 Move event - Task: {task_id}, From: {from_column}, To: {to_column}")
+                logger.info(f"🎯 Kanban component returned: {result}")
+                event_type = result.get("type")
                 
-                if task_id and task_id in task_path_map:
-                    path, task = task_path_map[task_id]
-                    logger.info(f"✅ Task found in map. Path: {path}")
-                    logger.info(f"Drag-drop: Moving task {task_id} from {from_column} to {to_column}")
-                    try:
-                        move_task(task, path, to_column)
-                        logger.info(f"✅ Successfully moved task {task_id} to {to_column}")
-                        # Update last modification time
-                        board_root = get_board_root()
-                        # Check both tasks and issues directories
-                        for dir_name in ["tasks", "issues"]:
-                            tasks_root = board_root / dir_name / to_column
-                            task_file = tasks_root / f"{task_id}.yaml"
-                            if task_file.exists():
-                                st.session_state["last_task_mtime"] = task_file.stat().st_mtime
-                                logger.info(f"✅ Updated mtime from {task_file}")
-                                break
-                        # Rerun to refresh the board
+                if event_type == "move":
+                    task_id = result.get("taskId")
+                    from_column = result.get("fromColumn")
+                    to_column = result.get("toColumn")
+                    
+                    logger.info(f"🔄 Move event - Task: {task_id}, From: {from_column}, To: {to_column}")
+                    
+                    if task_id and task_id in task_path_map:
+                        path, task = task_path_map[task_id]
+                        logger.info(f"✅ Task found in map. Path: {path}")
+                        logger.info(f"Drag-drop: Moving task {task_id} from {from_column} to {to_column}")
+                        try:
+                            move_task(task, path, to_column)
+                            logger.info(f"✅ Successfully moved task {task_id} to {to_column}")
+                            # Update last modification time
+                            board_root = get_board_root()
+                            # Check both tasks and issues directories
+                            for dir_name in ["tasks", "issues"]:
+                                tasks_root = board_root / dir_name / to_column
+                                task_file = tasks_root / f"{task_id}.yaml"
+                                if task_file.exists():
+                                    st.session_state["last_task_mtime"] = task_file.stat().st_mtime
+                                    logger.info(f"✅ Updated mtime from {task_file}")
+                                    break
+                            # Rerun to refresh the board
+                            st.rerun()
+                        except Exception as e:
+                            logger.error(f"❌ Error moving task: {e}", exc_info=True)
+                            st.error(f"Error moving task: {e}")
+                    else:
+                        logger.warning(f"⚠️ Task {task_id} not found in task_path_map")
+                        logger.warning(f"  Available task IDs: {list(task_path_map.keys())[:10]}")
+                
+                elif event_type == "click":
+                    task_id = result.get("taskId")
+                    logger.info(f"🖱️ Click event - Task: {task_id}")
+                    if task_id and task_id in task_path_map:
+                        logger.info(f"Task clicked: {task_id}")
+                        st.session_state["viewing_task"] = task_id
                         st.rerun()
-                    except Exception as e:
-                        logger.error(f"❌ Error moving task: {e}", exc_info=True)
-                        st.error(f"Error moving task: {e}")
-                else:
-                    logger.warning(f"⚠️ Task {task_id} not found in task_path_map")
-                    logger.warning(f"  Available task IDs: {list(task_path_map.keys())[:10]}")
-            
-            elif event_type == "click":
-                task_id = result.get("taskId")
-                logger.info(f"🖱️ Click event - Task: {task_id}")
-                if task_id and task_id in task_path_map:
-                    logger.info(f"Task clicked: {task_id}")
-                    st.session_state["viewing_task"] = task_id
-                    st.rerun()
-                else:
-                    logger.warning(f"⚠️ Task {task_id} not found for click")
+                    else:
+                        logger.warning(f"⚠️ Task {task_id} not found for click")
                     
     except Exception as e:
         logger.error(f"Error rendering kanban board: {e}", exc_info=True)
