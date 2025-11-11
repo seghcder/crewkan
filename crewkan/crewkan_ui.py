@@ -261,8 +261,28 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
     default_agent = agents[0]["id"] if agents else "ui"
     client = BoardClient(board_root, default_agent)
     
-    # Get comments
-    comments = client.get_comments(task_id)
+    # Get comments - handle both tasks/ and issues/ directories
+    comments = []
+    try:
+        # Try to get comments via BoardClient (works for issues/)
+        comments = client.get_comments(task_id)
+    except BoardError as e:
+        # If task is in tasks/ directory, get comments from task data directly
+        if "issues directory does not exist" in str(e) or "not found" in str(e):
+            # Task might be in tasks/ directory, get comments from task_data history
+            comments = []
+            for entry in task_data.get("history", []):
+                if entry.get("event") == "comment":
+                    comments.append({
+                        "comment_id": entry.get("comment_id", ""),
+                        "at": entry.get("at", ""),
+                        "by": entry.get("by", ""),
+                        "details": entry.get("details", ""),
+                    })
+            logger.info(f"Task {task_id} not in issues/, using comments from task history")
+        else:
+            # Re-raise if it's a different error
+            raise
     
     # Back button
     if st.button("← Back to Board", key="back_to_board"):
