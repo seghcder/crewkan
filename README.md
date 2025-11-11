@@ -78,6 +78,22 @@ For development, you may also want to install additional testing dependencies:
 pip install coverage pytest playwright
 ```
 
+**Note**: The Kanban component requires Node.js and npm for building the frontend. Install Node.js from [nodejs.org](https://nodejs.org/) if you haven't already.
+
+Build the frontend component:
+
+```bash
+./build.sh
+```
+
+Or manually:
+
+```bash
+cd crewkan/kanban_native/frontend
+npm install
+npm run build
+```
+
 ### Optional Dependencies
 
 Some features require additional packages:
