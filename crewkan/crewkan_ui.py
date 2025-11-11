@@ -30,6 +30,14 @@ logging.basicConfig(
     ]
 )
 
+# Filter out noisy third-party loggers BEFORE creating our logger
+logging.getLogger("watchdog").setLevel(logging.WARNING)
+logging.getLogger("watchdog.observers").setLevel(logging.WARNING)
+logging.getLogger("watchdog.observers.inotify_buffer").setLevel(logging.WARNING)
+logging.getLogger("watchdog.observers.inotify").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 logger.info(f"=== CrewKan UI Starting ===")
 logger.info(f"Log file: {log_file}")
