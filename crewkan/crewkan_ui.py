@@ -15,6 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 from crewkan.board_core import BoardClient, BoardError
 
+# Import kanban component - required
+try:
+    from streamlit_kanban_board_goviceversa import kanban_board
+except ImportError:
+    raise ImportError("streamlit-kanban-board-goviceversa is required. Install with: pip install streamlit-kanban-board-goviceversa")
+
 # Set up logging to file in tmp directory
 log_dir = Path(__file__).resolve().parent.parent.parent / "tmp"
 log_dir.mkdir(parents=True, exist_ok=True)
@@ -110,33 +116,6 @@ def move_task(task_data: Dict[str, Any], task_path: Path, new_column: str) -> No
         save_yaml(new_path, task_data)
         if new_path != task_path:
             task_path.unlink()
-
-
-def assign_task(task_data: Dict[str, Any], task_path: Path, agent_id: str) -> None:
-    """Assign task using BoardClient for proper updates."""
-    try:
-        # Use BoardClient for proper assignment
-        board_root = task_path.parent.parent.parent
-        agents = load_agents()
-        default_agent = agents[0]["id"] if agents else "ui"
-        
-        client = BoardClient(board_root, default_agent)
-        client.reassign_task(task_data["id"], agent_id, keep_existing=True)
-    except Exception as e:
-        # Fallback to direct update
-        assignees = set(task_data.get("assignees") or [])
-        assignees.add(agent_id)
-        task_data["assignees"] = sorted(assignees)
-        task_data["updated_at"] = now_iso()
-        task_data.setdefault("history", []).append(
-            {
-                "at": task_data["updated_at"],
-                "by": "ui",
-                "event": "assigned",
-                "details": f"Assigned {agent_id}",
-            }
-        )
-        save_yaml(task_path, task_data)
 
 
 def create_task(title: str, description: str, column_id: str, assignee_ids: List[str], priority: str, tags: str, due_date_str: Optional[str]) -> str:
@@ -235,6 +214,122 @@ def create_task(title: str, description: str, column_id: str, assignee_ids: List
         logger.info(f"✅ Successfully created task {task_id} via fallback method")
         logger.info(f"Task file saved to: {path}")
         return task_id
+
+
+def transform_columns_to_stages(columns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Transform board columns to kanban component stages format."""
+    # Default colors for columns (can be customized)
+    default_colors = {
+        "backlog": "#95a5a6",
+        "todo": "#3498db",
+        "doing": "#f39c12",
+        "blocked": "#e74c3c",
+        "done": "#27ae60",
+    }
+    
+    stages = []
+    for col in columns:
+        col_id = col.get("id", "")
+        col_name = col.get("name", col_id)
+        # Use default color or generate one based on column name
+        color = default_colors.get(col_id, "#3498db")
+        stages.append({
+            "id": col_id,
+            "name": col_name,
+            "color": color,
+        })
+    return stages
+
+
+def transform_tasks_to_deals(tasks_by_column: Dict[str, List[Tuple[Path, Dict[str, Any]]]], stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Transform tasks to kanban component deals format with permissions for drag-drop."""
+    deals = []
+    stage_ids = [s["id"] for s in stages]
+    
+    for col_id, task_list in tasks_by_column.items():
+        for path, task in task_list:
+            task_id = task.get("id", "")
+            title = task.get("title", "Untitled Task")
+            assignees = task.get("assignees", [])
+            priority = task.get("priority", "medium")
+            tags = task.get("tags", [])
+            due_date = task.get("due_date", "")
+            
+            # Create complete dla_permissions structure to enable drag-drop
+            # Component requires this exact structure - padlock appears if missing/incomplete
+            stage_permissions = {}
+            for stage_id in stage_ids:
+                stage_permissions[stage_id] = {
+                    "allowed": True,
+                    "reason": "",
+                    "warning": "",
+                    "visual_hint": {
+                        "color": "green",
+                        "icon": None,
+                        "text": "",
+                    },
+                }
+            
+            # Create deal object matching component's expected format
+            # CRITICAL: All these fields must be present and correct for drag to work
+            deal = {
+                "id": task_id,
+                "stage": col_id,
+                "deal_id": task_id,  # Component expects deal_id field
+                "company_name": title,  # Component expects company_name field
+                "title": title,  # Keep original field for reference
+                "assignees": ", ".join(assignees) if assignees else "",
+                "priority": priority,
+                "tags": ", ".join(tags) if tags else "",
+                "due_date": due_date,
+                # These fields control drag ability - both must be True
+                "ready_to_be_moved": True,  # CRITICAL: Must be True
+                "ic_review_completed": True,  # CRITICAL: Must be True to avoid padlock
+                "_path": str(path),  # Store path for later use (internal field)
+                "_task_data": task,  # Store full task data (internal field)
+                # Complete DLA V2 permissions structure - required for drag to work
+                # Padlock appears if this structure is missing or incomplete
+                "dla_permissions": {
+                    "deal_info": {
+                        "currency": "USD",
+                        "amount": 0,
+                        "current_stage": col_id,
+                        "deal_id": task_id,
+                    },
+                    "user_info": {
+                        "username": "ui",
+                        "role": "admin",  # Must be admin or have sufficient permissions
+                        "role_level": "admin",
+                        "authority_type": "unlimited",
+                        "authority_amount": 999999999,
+                        "ic_threshold": 0,
+                    },
+                    "stage_permissions": stage_permissions,  # All stages must have allowed=True
+                    "summary": {
+                        "can_touch_deal": True,  # CRITICAL: Must be True
+                        "can_approve": True,
+                        "can_reject": False,
+                        "needs_ic_review": False,  # CRITICAL: Must be False
+                        "blocked_reason": None,  # CRITICAL: Must be None
+                    },
+                    "ui_hints": {
+                        "allowed_drop_zones": stage_ids,  # All stages allowed
+                        "blocked_drop_zones": [],  # No blocked zones
+                        "drag_enabled": True,  # CRITICAL: Must be True
+                        "can_drag_from_current_stage": True,  # CRITICAL: Must be True
+                    },
+                },
+            }
+            
+            # Debug: Log if permissions look wrong
+            if not deal["dla_permissions"]["ui_hints"]["drag_enabled"]:
+                logger.warning(f"Task {task_id} has drag_enabled=False")
+            if deal["dla_permissions"]["summary"]["needs_ic_review"]:
+                logger.warning(f"Task {task_id} needs_ic_review=True (will show padlock)")
+            if not deal["ready_to_be_moved"]:
+                logger.warning(f"Task {task_id} ready_to_be_moved=False (will show padlock)")
+            deals.append(deal)
+    return deals
 
 
 def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
@@ -425,7 +520,32 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="AI Agent Board", layout="wide")
+    # Configure page for full-screen kanban
+    st.set_page_config(
+        page_title="AI Agent Board",
+        layout="wide",
+        initial_sidebar_state="collapsed",  # Hide sidebar by default
+    )
+    
+    # Hide sidebar and set black background
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+        .stApp {
+            margin-top: 0rem;
+            background-color: #000000;
+        }
+        .main .block-container {
+            background-color: #000000;
+            padding-top: 1rem;
+        }
+        h1, h2, h3, h4, h5, h6, p, div, span {
+            color: #ffffff;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     
     logger.info("=== Main function called ===")
     logger.info(f"Session state keys: {list(st.session_state.keys())}")
@@ -433,359 +553,202 @@ def main() -> None:
     # Check if we're viewing a task details page
     if "viewing_task" in st.session_state:
         task_id = st.session_state["viewing_task"]
-        # Find the task
+        # Find the task - search all tasks
+        task_found = False
         for path, task in iter_tasks():
             if task.get("id") == task_id:
                 render_task_details_page(task_id, task, path)
+                task_found = True
                 return
         # Task not found, clear and show board
-        del st.session_state["viewing_task"]
-        st.rerun()
-
-    # Title with refresh button
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.title("AI Agent Task Board")
-    with col2:
-        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True, key="manual_refresh"):
-            st.session_state["last_task_mtime"] = 0  # Force refresh
+        if not task_found:
+            logger.warning(f"Task {task_id} not found, clearing viewing_task")
+            if "viewing_task" in st.session_state:
+                del st.session_state["viewing_task"]
+            st.error(f"Task {task_id} not found")
             st.rerun()
 
-    # Smart filesystem change detection - only check when not processing form submission
-    # Initialize last check time
+    # Smart filesystem change detection
     if "last_check" not in st.session_state:
         st.session_state.last_check = time.time()
         st.session_state.last_file_hash = None
     
-    # Only check for filesystem changes if we're not in the middle of form processing
-    # This prevents interference with form submission
-    form_processing = st.session_state.get("form_processing", False)
-    
-    if not form_processing:
-        current_time = time.time()
-        # Check every 3 seconds (less frequent to reduce interference)
-        if current_time - st.session_state.last_check > 3.0:
-            st.session_state.last_check = current_time
+    current_time = time.time()
+    # Check every 3 seconds
+    if current_time - st.session_state.last_check > 3.0:
+        st.session_state.last_check = current_time
+        
+        board_root = get_board_root()
+        tasks_root = board_root / "tasks"
+        
+        if tasks_root.exists():
+            latest_mtime = 0
+            for task_file in tasks_root.rglob("*.yaml"):
+                if task_file.is_file():
+                    mtime = task_file.stat().st_mtime
+                    latest_mtime = max(latest_mtime, mtime)
             
-            # Check if task files have changed by comparing file modification times
-            board_root = get_board_root()
-            tasks_root = board_root / "tasks"
+            last_mtime = st.session_state.get("last_task_mtime", 0)
             
-            if tasks_root.exists():
-                # Get latest modification time of any task file
-                latest_mtime = 0
-                for task_file in tasks_root.rglob("*.yaml"):
-                    if task_file.is_file():
-                        mtime = task_file.stat().st_mtime
-                        latest_mtime = max(latest_mtime, mtime)
-                
-                # Compare with last known modification time
-                last_mtime = st.session_state.get("last_task_mtime", 0)
-                
-                if latest_mtime > last_mtime:
-                    logger.info(f"Filesystem change detected (mtime: {latest_mtime} > {last_mtime})")
-                    st.session_state["last_task_mtime"] = latest_mtime
-                    # Only rerun if we're not in a form context
-                    if not st.session_state.get("in_form_context", False):
-                        st.rerun()
-    
-    # Manual refresh button
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True):
-            st.session_state["last_task_mtime"] = 0  # Force refresh
-            st.rerun()
+            if latest_mtime > last_mtime:
+                logger.info(f"Filesystem change detected (mtime: {latest_mtime} > {last_mtime})")
+                st.session_state["last_task_mtime"] = latest_mtime
+                st.rerun()
 
     board = load_board()
     agents = load_agents()
     columns = board.get("columns", [])
     col_ids = [c["id"] for c in columns]
 
-    # Sidebar filters
-    st.sidebar.header("Filters")
+    # Header with buttons
+    header_col1, header_col2, header_col3 = st.columns([1, 1, 10])
+    with header_col1:
+        if st.button("➕ New Task", type="primary", use_container_width=True, key="new_task_btn"):
+            st.session_state["show_new_task_modal"] = True
+    with header_col2:
+        if st.button("🔄 Refresh", use_container_width=True, key="refresh_btn"):
+            st.session_state["last_task_mtime"] = 0
+            st.rerun()
+    with header_col3:
+        st.title("AI Agent Task Board")
 
-    agent_options = ["(all)"] + [a["id"] for a in agents]
-    selected_agent = st.sidebar.selectbox("Filter by agent", agent_options)
+    # New task modal
+    if st.session_state.get("show_new_task_modal", False):
+        with st.container():
+            st.markdown("### Create New Task")
+            with st.form("new_task_form", clear_on_submit=False):
+                title = st.text_input("Title *", key="modal_task_title")
+                description = st.text_area("Description", height=100, key="modal_task_desc")
+                column_id = st.selectbox("Column", col_ids, key="modal_task_column")
+                priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="modal_task_priority")
+                tag_str = st.text_input("Tags (comma separated)", key="modal_task_tags")
+                assignee_multiselect = st.multiselect(
+                    "Assignees",
+                    [a["id"] for a in agents] if agents else [],
+                    key="modal_task_assignees",
+                )
+                due_date_str = st.text_input("Due date (optional text)", value="", key="modal_task_due")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
+                with col2:
+                    if st.form_submit_button("Cancel", use_container_width=True):
+                        st.session_state["show_new_task_modal"] = False
+                        st.rerun()
+                
+                if submitted:
+                    if not title or not title.strip():
+                        st.error("Title is required")
+                    else:
+                        try:
+                            task_id = create_task(
+                                title.strip(),
+                                description.strip() if description else "",
+                                column_id,
+                                assignee_multiselect,
+                                priority,
+                                tag_str.strip() if tag_str else "",
+                                due_date_str.strip() or None,
+                            )
+                            st.success(f"✅ Created task {task_id}")
+                            st.session_state["show_new_task_modal"] = False
+                            # Update last modification time
+                            board_root = get_board_root()
+                            tasks_root = board_root / "tasks" / column_id
+                            task_file = tasks_root / f"{task_id}.yaml"
+                            if task_file.exists():
+                                st.session_state["last_task_mtime"] = task_file.stat().st_mtime
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error creating task: {e}")
+                            logger.error(f"Error creating task: {e}", exc_info=True)
 
-    col_filter_options = ["(all)"] + col_ids
-    selected_column_filter = st.sidebar.selectbox("Filter by column", col_filter_options)
-
-    # New task form - improved with better error handling
-    st.sidebar.header("New task")
-    
-    logger.debug(f"Setting up form. Agents available: {[a['id'] for a in agents]}")
-    
-    # Show any previous error/success message
-    if "create_task_message" in st.session_state:
-        msg_type = st.session_state.get("create_task_message_type", "info")
-        msg = st.session_state["create_task_message"]
-        logger.info(f"Showing message: {msg_type} - {msg}")
-        if msg_type == "success":
-            st.sidebar.success(msg)
-            # Also show a toast notification
-            st.toast(msg, icon="✅")
-        elif msg_type == "error":
-            st.sidebar.error(msg)
-            st.toast(msg, icon="❌")
-        # Clear message after showing
-        del st.session_state["create_task_message"]
-        del st.session_state["create_task_message_type"]
-    
-    # Mark that we're in form context to prevent auto-refresh interference
-    st.session_state["in_form_context"] = True
-    
-    with st.sidebar.form("new_task_form", clear_on_submit=True):
-        title = st.text_input("Title *", key="new_task_title")
-        description = st.text_area("Description", height=100, key="new_task_desc")
-        column_id = st.selectbox("Column", col_ids, key="new_task_column")
-        priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="new_task_priority")
-        tag_str = st.text_input("Tags (comma separated)", key="new_task_tags")
-        assignee_multiselect = st.multiselect(
-            "Assignees",
-            [a["id"] for a in agents] if agents else [],
-            key="new_task_assignees",
-        )
-        due_date_str = st.text_input("Due date (optional text)", value="", key="new_task_due")
-        
-        submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
-        
-        # Process form submission immediately when button is clicked
-        # With clear_on_submit=True, form values are cleared AFTER this block runs
-        # So we capture and process values while they're still available
-        if submitted:
-            # Mark that we're processing form to prevent auto-refresh
-            st.session_state["form_processing"] = True
-            # Capture form values immediately (they'll be cleared after this block)
-            captured_title = title
-            captured_description = description
-            captured_column = column_id
-            captured_priority = priority
-            captured_tags = tag_str
-            captured_assignees = assignee_multiselect
-            captured_due_date = due_date_str
-            logger.info("=" * 50)
-            logger.info("FORM SUBMITTED!")
-            logger.info(f"Title: '{captured_title}'")
-            logger.info(f"Description: '{captured_description}'")
-            logger.info(f"Column: {captured_column}")
-            logger.info(f"Priority: {captured_priority}")
-            logger.info(f"Tags: '{captured_tags}'")
-            logger.info(f"Assignees: {captured_assignees}")
-            logger.info(f"Due date: '{captured_due_date}'")
-            logger.info("=" * 50)
-            
-            if not captured_title or not captured_title.strip():
-                logger.warning("Form submitted but title is empty")
-                st.session_state["create_task_message"] = "⚠️ Title is required."
-                st.session_state["create_task_message_type"] = "error"
-                st.rerun()
-            else:
-                try:
-                    logger.info(f"Attempting to create task: '{captured_title.strip()}'")
-                    task_id = create_task(
-                        captured_title.strip(),
-                        captured_description.strip() if captured_description else "",
-                        captured_column,
-                        captured_assignees,
-                        captured_priority,
-                        captured_tags.strip() if captured_tags else "",
-                        captured_due_date.strip() or None,
-                    )
-                    logger.info(f"✅ Task created successfully: {task_id}")
-                    success_msg = f"✅ Created task {task_id}"
-                    st.session_state["create_task_message"] = success_msg
-                    st.session_state["create_task_message_type"] = "success"
-                    # Show immediate confirmation
-                    st.toast(success_msg, icon="✅")
-                    logger.info("Triggering rerun after successful task creation")
-                    # Clear form processing flag
-                    st.session_state["form_processing"] = False
-                    st.session_state["in_form_context"] = False
-                    # Update last modification time to prevent immediate refresh
-                    board_root = get_board_root()
-                    tasks_root = board_root / "tasks" / captured_column
-                    task_file = tasks_root / f"{task_id}.yaml"
-                    if task_file.exists():
-                        st.session_state["last_task_mtime"] = task_file.stat().st_mtime
-                    # Form will be cleared automatically by clear_on_submit=True
-                    st.rerun()
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"❌ Failed to create task: {error_msg}", exc_info=True)
-                    st.session_state["create_task_message"] = f"❌ Error: {error_msg}"
-                    st.session_state["create_task_message_type"] = "error"
-                    st.toast(f"Error: {error_msg}", icon="❌")
-                    # Store full error for debugging
-                    st.session_state["create_task_error_details"] = str(e)
-                    import traceback
-                    st.session_state["create_task_traceback"] = traceback.format_exc()
-                    logger.error(f"Full traceback:\n{st.session_state['create_task_traceback']}")
-                    # Clear form processing flag
-                    st.session_state["form_processing"] = False
-                    st.session_state["in_form_context"] = False
-                    # Form will be cleared automatically, but we rerun to show error
-                    st.rerun()
-    
-    # Clear form context flag after form block
-    if "in_form_context" in st.session_state and not st.session_state.get("form_processing", False):
-        st.session_state["in_form_context"] = False
-    
-    # Show error details if available
-    if "create_task_error_details" in st.session_state:
-        with st.sidebar.expander("Error details", expanded=False):
-            st.code(st.session_state.get("create_task_traceback", "No traceback available"))
-        # Clear after showing
-        del st.session_state["create_task_error_details"]
-        if "create_task_traceback" in st.session_state:
-            del st.session_state["create_task_traceback"]
-
-    # Load tasks and filter
+    # Load all tasks (no filtering for now - can add filters later)
     tasks_by_column = {cid: [] for cid in col_ids}
     for path, task in iter_tasks():
         col = task.get("column")
         if col not in tasks_by_column:
             continue
-
-        if selected_agent != "(all)":
-            if selected_agent not in (task.get("assignees") or []):
-                continue
-
-        if selected_column_filter != "(all)" and col != selected_column_filter:
-            continue
-
         tasks_by_column[col].append((path, task))
 
-    # Render columns as horizontal layout
-    cols = st.columns(len(columns)) if columns else []
-
-    for idx, col_def in enumerate(columns):
-        cid = col_def["id"]
-        cname = col_def.get("name", cid)
-        col_tasks = tasks_by_column.get(cid, [])
-
-        with cols[idx]:
-            st.subheader(cname)
-            if not col_tasks:
-                st.write("_No tasks_")
-                continue
-
-            for path, task in col_tasks:
-                tid = task.get("id")
-                title = task.get("title", "")
-                assignees = ", ".join(task.get("assignees") or [])
-                priority = task.get("priority", "medium")
-                tags = ", ".join(task.get("tags") or [])
-                due = task.get("due_date") or ""
-
-                # Display task - filename in dropdown, not in top description
-                with st.expander(f"{title}", expanded=False):
-                    st.caption(f"ID: {tid} | File: {path.name}")
-                    st.markdown(f"**Priority:** {priority}")
-                    st.markdown(f"**Assignees:** {assignees or '-'}")
-                    st.markdown(f"**Tags:** {tags or '-'}")
-                    if due:
-                        st.markdown(f"**Due:** {due}")
-                    desc = task.get("description", "")
-                    if desc:
-                        st.markdown("---")
-                        st.markdown(desc)
-                    
-                    # View Details button
-                    if st.button("View Details", key=f"view_details_{tid}"):
-                        st.session_state["viewing_task"] = tid
+    # Transform data for kanban component
+    stages = transform_columns_to_stages(columns)
+    deals = transform_tasks_to_deals(tasks_by_column, stages)
+    
+    # Create a mapping from deal_id to (path, task) for quick lookup
+    deal_to_task_map = {}
+    for col_id, task_list in tasks_by_column.items():
+        for path, task in task_list:
+            deal_to_task_map[task.get("id", "")] = (path, task)
+    
+    # Render kanban board - full height
+    try:
+        # Provide user_info to component for permissions
+        user_info = {
+            "username": "ui",
+            "role": "admin",
+            "email": "ui@crewkan.local",
+        }
+        
+        result = kanban_board(
+            stages=stages,
+            deals=deals,
+            key="crewkan_board",
+            height=800,  # Increased height for full screen
+            allow_empty_stages=True,
+            show_tooltips=True,
+            user_info=user_info,
+        )
+        
+        # Handle drag-and-drop: task moved to different column
+        if result and result.get("moved_deal"):
+            moved = result["moved_deal"]
+            deal_id = moved.get("deal_id") or moved.get("id")
+            from_stage = moved.get("from_stage")
+            to_stage = moved.get("to_stage")
+            
+            if deal_id and deal_id in deal_to_task_map:
+                path, task = deal_to_task_map[deal_id]
+                current_col = task.get("column", task.get("status"))
+                
+                # Only move if actually changed
+                if to_stage and to_stage != current_col:
+                    logger.info(f"Drag-drop: Moving task {deal_id} from {current_col} to {to_stage}")
+                    try:
+                        move_task(task, path, to_stage)
+                        st.success(f"Moved task to {to_stage}")
+                        # Update last modification time to prevent immediate refresh
+                        board_root = get_board_root()
+                        tasks_root = board_root / "tasks" / to_stage
+                        task_file = tasks_root / f"{deal_id}.yaml"
+                        if task_file.exists():
+                            st.session_state["last_task_mtime"] = task_file.stat().st_mtime
                         st.rerun()
-
-                    # Rename task
-                    new_title = st.text_input(
-                        "Rename task",
-                        value=title,
-                        key=f"rename_input_{tid}",
-                    )
-                    if st.button("Rename", key=f"rename_btn_{tid}"):
-                        if new_title and new_title != title:
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                client.update_task_field(tid, "title", new_title)
-                                st.success(f"Renamed to: {new_title}")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error renaming: {e}")
-
-                    # Update tags
-                    new_tags_str = st.text_input(
-                        "Tags (comma separated)",
-                        value=tags,
-                        key=f"tags_input_{tid}",
-                    )
-                    if st.button("Update Tags", key=f"tags_btn_{tid}"):
-                        if new_tags_str != tags:
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                # Tags need to be updated as a list
-                                new_tags = [t.strip() for t in new_tags_str.split(",") if t.strip()] if new_tags_str else []
-                                # Update task directly for tags (update_task_field expects string)
-                                task["tags"] = new_tags
-                                task["updated_at"] = now_iso()
-                                task.setdefault("history", []).append({
-                                    "at": task["updated_at"],
-                                    "by": "ui",
-                                    "event": "tags_updated",
-                                    "details": f"Tags: {', '.join(new_tags)}",
-                                })
-                                save_yaml(path, task)
-                                st.success("Tags updated")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error updating tags: {e}")
-
-                    # Move task
-                    target_col = st.selectbox(
-                        "Move to column",
-                        ["(no change)"] + col_ids,
-                        key=f"move_select_{tid}",
-                    )
-                    if st.button("Move", key=f"move_btn_{tid}"):
-                        if target_col != "(no change)":
-                            move_task(task, path, target_col)
-                            st.rerun()
-
-                    # Assign task
-                    assign_to = st.selectbox(
-                        "Assign to agent",
-                        ["(none)"] + [a["id"] for a in agents],
-                        key=f"assign_select_{tid}",
-                    )
-                    if st.button("Assign", key=f"assign_btn_{tid}"):
-                        if assign_to != "(none)":
-                            assign_task(task, path, assign_to)
-                            st.rerun()
+                    except Exception as e:
+                        logger.error(f"Error moving task via drag-drop: {e}", exc_info=True)
+                        st.error(f"Error moving task: {e}")
+        
+        # Handle click: show task details
+        if result and result.get("clicked_deal"):
+            clicked = result["clicked_deal"]
+            deal_id = clicked.get("deal_id") or clicked.get("id")
+            
+            if deal_id and deal_id in deal_to_task_map:
+                path, task = deal_to_task_map[deal_id]
+                logger.info(f"Task clicked: {deal_id}")
+                st.session_state["viewing_task"] = deal_id
+                st.rerun()
+            else:
+                logger.warning(f"Clicked deal {deal_id} not found in deal_to_task_map")
+                st.warning(f"Task {deal_id} not found")
                     
-                    # Add comment
-                    comment_text = st.text_area(
-                        "Add comment",
-                        key=f"comment_input_{tid}",
-                        height=60,
-                    )
-                    if st.button("Add Comment", key=f"comment_btn_{tid}"):
-                        if comment_text.strip():
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                client.add_comment(tid, comment_text.strip())
-                                st.success("Comment added")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error adding comment: {e}")
+    except Exception as e:
+        logger.error(f"Error rendering kanban board: {e}", exc_info=True)
+        st.error(f"Error rendering kanban board: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 if __name__ == "__main__":
     main()
-
