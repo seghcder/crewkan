@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CrewKan Kanban Board</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #000000;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .kanban-container {
+            display: flex;
+            height: 100vh;
+            padding: 10px;
+            gap: 15px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .kanban-column {
+            flex: 1;
+            min-width: 280px;
+            max-width: 350px;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #333;
+        }
+
+        .column-header {
+            background-color: #2a2a2a;
+            padding: 12px 16px;
+            border-radius: 8px 8px 0 0;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            border-bottom: 2px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .column-count {
+            background-color: #444;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .column-body {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 200px;
+        }
+
+        .task-card {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: move;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .task-card:hover {
+            border-color: #666;
+            box-shadow: 0 2px 8px rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .task-card.dragging {
+            opacity: 0.5;
+            transform: rotate(2deg);
+        }
+
+        .task-card.drag-over {
+            border: 2px dashed #4CAF50;
+            background-color: #2a4a2a;
+        }
+
+        .kanban-column.drag-over {
+            background-color: #1a3a1a;
+            border: 2px dashed #4CAF50;
+        }
+
+        .task-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            margin-bottom: 6px;
+            word-wrap: break-word;
+        }
+
+        .task-id {
+            font-size: 11px;
+            color: #888;
+            font-family: monospace;
+            margin-bottom: 4px;
+        }
+
+        .task-meta {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+
+        .task-priority {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .priority-high {
+            background-color: #dc2626;
+            color: #fff;
+        }
+
+        .priority-medium {
+            background-color: #f59e0b;
+            color: #fff;
+        }
+
+        .priority-low {
+            background-color: #10b981;
+            color: #fff;
+        }
+
+        .task-tags {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        .task-tag {
+            background-color: #3a3a3a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            color: #ccc;
+        }
+
+        .empty-column {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+            font-size: 13px;
+        }
+
+        /* Scrollbar styling */
+        .column-body::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .column-body::-webkit-scrollbar-track {
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
+
+        .column-body::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        .column-body::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="kanban-container" id="kanbanContainer"></div>
+
+    <script>
+        // Get data from Streamlit via URL parameters or embedded script
+        // Streamlit's html component passes data via window.parent.streamlitArgs
+        // But we need to extract it from the iframe context
+        let columns = [];
+        let tasks = [];
+        let height = 800;
+        
+        // Try to get data from parent window
+        try {
+            if (window.parent && window.parent.streamlitArgs) {
+                const args = window.parent.streamlitArgs;
+                columns = args.columns || [];
+                tasks = args.tasks || [];
+                height = args.height || 800;
+            } else {
+                // Fallback: try to get from URL hash or embedded data
+                // For now, we'll use a placeholder and update via postMessage
+                // Waiting for data from Streamlit...
+            }
+        } catch (e) {
+            console.log("Could not access parent window:", e);
+        }
+        
+        // Listen for data from Streamlit
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'streamlit:render') {
+                const args = event.data.args || {};
+                columns = args.columns || [];
+                tasks = args.tasks || [];
+                height = args.height || 800;
+                renderBoard();
+            }
+        });
+
+        // Set container height
+        document.body.style.height = height + 'px';
+        document.getElementById('kanbanContainer').style.height = height + 'px';
+
+        let draggedTask = null;
+        let draggedFromColumn = null;
+
+        // Group tasks by column - initialize empty, will be populated when data loads
+        const tasksByColumn = {};
+
+        // Render Kanban board
+        function renderBoard() {
+            const container = document.getElementById('kanbanContainer');
+            container.innerHTML = '';
+
+            columns.forEach(column => {
+                const columnDiv = document.createElement('div');
+                columnDiv.className = 'kanban-column';
+                columnDiv.dataset.columnId = column.id;
+                columnDiv.style.borderTop = `3px solid ${column.color || '#3498db'}`;
+
+                // Column header
+                const header = document.createElement('div');
+                header.className = 'column-header';
+                header.style.borderTop = `3px solid ${column.color || '#3498db'}`;
+                header.innerHTML = `
+                    <span>${column.name}</span>
+                    <span class="column-count">${tasksByColumn[column.id]?.length || 0}</span>
+                `;
+                columnDiv.appendChild(header);
+
+                // Column body
+                const body = document.createElement('div');
+                body.className = 'column-body';
+
+                const columnTasks = tasksByColumn[column.id] || [];
+                if (columnTasks.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'empty-column';
+                    empty.textContent = 'No tasks';
+                    body.appendChild(empty);
+                } else {
+                    columnTasks.forEach(task => {
+                        const card = createTaskCard(task, column.id);
+                        body.appendChild(card);
+                    });
+                }
+
+                columnDiv.appendChild(body);
+
+                // Drag and drop handlers - attach to both column and body
+                columnDiv.addEventListener('dragover', handleDragOver);
+                columnDiv.addEventListener('drop', handleDrop);
+                columnDiv.addEventListener('dragleave', handleDragLeave);
+                
+                // Also attach to body for drops on empty areas
+                body.addEventListener('dragover', handleDragOver);
+                body.addEventListener('drop', handleDrop);
+                body.addEventListener('dragleave', handleDragLeave);
+
+                container.appendChild(columnDiv);
+            });
+        }
+
+        // Create task card
+        function createTaskCard(task, columnId) {
+            const card = document.createElement('div');
+            card.className = 'task-card';
+            card.draggable = true;
+            card.dataset.taskId = task.id;
+            card.dataset.columnId = columnId;
+
+            const priority = task.priority || 'medium';
+            const priorityClass = `priority-${priority}`;
+            const priorityText = priority.charAt(0).toUpperCase() + priority.slice(1);
+
+            const tags = task.tags || [];
+            const tagsHtml = tags.length > 0 
+                ? `<div class="task-tags">${tags.map(tag => `<span class="task-tag">${tag}</span>`).join('')}</div>`
+                : '';
+
+            card.innerHTML = `
+                <div class="task-title">${escapeHtml(task.title || 'Untitled')}</div>
+                <div class="task-id">${escapeHtml(task.id || '')}</div>
+                <div class="task-meta">
+                    ${priority ? `<span class="task-priority ${priorityClass}">${priorityText}</span>` : ''}
+                    ${tagsHtml}
+                </div>
+            `;
+
+            // Drag handlers
+            card.addEventListener('dragstart', handleDragStart);
+            card.addEventListener('dragend', handleDragEnd);
+            card.addEventListener('click', () => handleTaskClick(task.id));
+
+            return card;
+        }
+
+        // Drag handlers
+        function handleDragStart(e) {
+            draggedTask = e.target;
+            draggedFromColumn = e.target.dataset.columnId;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', e.target.outerHTML);
+            e.dataTransfer.setData('text/plain', e.target.dataset.taskId || '');
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'move';
+            
+            // Find the column (could be column div or body)
+            const column = e.currentTarget.closest('.kanban-column') || e.currentTarget;
+            if (column && column.classList.contains('kanban-column')) {
+                column.classList.add('drag-over');
+            }
+            
+            return false;
+        }
+
+        function handleDragLeave(e) {
+            // Find the column (could be column div or body)
+            const column = e.currentTarget.closest('.kanban-column') || e.currentTarget;
+            if (column && column.classList.contains('kanban-column')) {
+                column.classList.remove('drag-over');
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const targetColumn = e.currentTarget.closest('.kanban-column');
+            
+            if (!targetColumn) {
+                console.error("❌ Could not find target column");
+                return false;
+            }
+            
+            const targetColumnId = targetColumn.dataset.columnId;
+            targetColumn.classList.remove('drag-over');
+
+            if (!draggedTask || !draggedFromColumn) {
+                console.warn("❌ No dragged task or source column");
+                return false;
+            }
+
+            // Don't do anything if dropped in same column
+            if (targetColumnId === draggedFromColumn) {
+                return false;
+            }
+
+            // Send move event to Streamlit
+            const taskId = draggedTask.dataset.taskId;
+            
+            if (!taskId) {
+                console.error("❌ No task ID found on dragged element");
+                console.error("  draggedTask.dataset:", draggedTask.dataset);
+                return false;
+            }
+            
+            console.log("📤 Calling sendMoveEvent...");
+            sendMoveEvent(taskId, draggedFromColumn, targetColumnId);
+            console.log("✅ sendMoveEvent called");
+
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.kanban-column').forEach(col => {
+                col.classList.remove('drag-over');
+            });
+            draggedTask = null;
+            draggedFromColumn = null;
+        }
+
+        function handleTaskClick(taskId) {
+            sendClickEvent(taskId);
+        }
+
+        // Send events to Streamlit via postMessage (iframe is sandboxed, can't navigate parent)
+        function sendMoveEvent(taskId, fromColumn, toColumn) {
+            const event = {
+                type: 'move',
+                taskId: taskId,
+                fromColumn: fromColumn,
+                toColumn: toColumn,
+                timestamp: Date.now()
+            };
+            
+            // Use postMessage to communicate with parent window
+            // The parent page will have a listener that updates query params
+            try {
+                const message = {
+                    type: 'kanban_event',
+                    event: event
+                };
+                
+                // Try multiple targets to ensure message gets through
+                // Note: In about:srcdoc iframe, window.location.origin is null, so we use '*' only
+                if (window.parent && window.parent !== window) {
+                    // Send to parent with wildcard origin (required for about:srcdoc iframes)
+                    window.parent.postMessage(message, '*');
+                    
+                    // Try with parent's origin if available (for same-origin iframes)
+                    // Skip if we're in about:srcdoc (origin will be null)
+                    if (window.location.origin && window.location.origin !== 'null') {
+                        try {
+                            window.parent.postMessage(message, window.location.origin);
+                        } catch (e) {
+                            // Ignore origin-specific errors
+                        }
+                    }
+                }
+                
+                // Also try window.top if different from parent
+                if (window.top && window.top !== window && window.top !== window.parent) {
+                    try {
+                        window.top.postMessage(message, '*');
+                    } catch (e) {
+                        // Ignore window.top errors
+                    }
+                }
+            } catch (e) {
+                console.error("❌ Error sending move event:", e);
+            }
+        }
+
+        function sendClickEvent(taskId) {
+            const event = {
+                type: 'click',
+                taskId: taskId,
+                timestamp: Date.now()
+            };
+            
+            // Use postMessage to communicate with parent window
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'kanban_event',
+                        event: event
+                    }, '*');
+                }
+            } catch (e) {
+                console.error("Error sending click event:", e);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Function to initialize and render board
+        function initializeBoard() {
+            // Check for embedded data first
+            if (window.kanbanData) {
+                console.log("Found kanbanData:", window.kanbanData);
+                columns = window.kanbanData.columns || [];
+                tasks = window.kanbanData.tasks || [];
+                height = window.kanbanData.height || 800;
+            }
+            
+            // Group tasks by column
+            columns.forEach(col => {
+                tasksByColumn[col.id] = tasks.filter(t => t.column === col.id);
+            });
+            
+            console.log("Initializing board with:", {
+                columns: columns.length,
+                tasks: tasks.length,
+                tasksByColumn: tasksByColumn
+            });
+            
+            // Set container height
+            document.body.style.height = height + 'px';
+            const container = document.getElementById('kanbanContainer');
+            if (container) {
+                container.style.height = height + 'px';
+            }
+            
+            renderBoard();
+        }
+        
+        // Initial render - try immediately, then with delay if needed
+        if (window.kanbanData) {
+            initializeBoard();
+        } else {
+            // Wait for data to be injected
+            setTimeout(function() {
+                if (window.kanbanData) {
+                    initializeBoard();
+                } else {
+                    console.warn("No kanbanData found after delay");
+                    // Try to render with empty data
+                    if (columns.length > 0) {
+                        initializeBoard();
+                    }
+                }
+            }, 50);
+        }
+    </script>
+</body>
+</html>
+
