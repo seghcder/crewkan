@@ -59,8 +59,12 @@ Items to make CrewKan production-ready.
 - [ ] Board cloning
 
 ### UI/UX
-- [ ] Improve Streamlit UI design
-- [ ] Add task drag-and-drop (if possible in Streamlit)
+- [x] Add task drag-and-drop (bi-directional component implemented)
+- [ ] Remove task ID/filename from Kanban board cards (keep visible on details page only)
+- [ ] Add assignee display to Kanban board cards
+- [ ] Fix issue details page - enable editing of priority, tags, and description
+- [ ] Optimize drag-and-drop event messages (reduce payload size, debounce if needed)
+- [ ] Remove all "task" references from code and directory structure (rename to "issue")
 - [ ] Add board switching in UI
 - [ ] Add real-time updates (polling or websockets)
 - [ ] Add dark mode
