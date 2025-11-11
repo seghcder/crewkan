@@ -338,12 +338,16 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
     agents = load_agents()
     agent_map = {a["id"]: a for a in agents}
     
-    # Get BoardClient for API calls
-    default_agent = agents[0]["id"] if agents else "ui"
-    client = BoardClient(board_root, default_agent)
-    
-    # Get comments
-    comments = client.get_comments(task_id)
+    # Get comments directly from task history (don't use BoardClient which expects "issues" dir)
+    comments = []
+    for entry in task_data.get("history", []):
+        if entry.get("event") == "comment":
+            comments.append({
+                "comment_id": entry.get("comment_id", ""),
+                "at": entry.get("at", ""),
+                "by": entry.get("by", ""),
+                "details": entry.get("details", ""),
+            })
     
     # Back button
     if st.button("← Back to Board", key="back_to_board"):
@@ -428,7 +432,7 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
         )
         if st.button("Move Task", key=f"detail_move_btn_{task_id}"):
             try:
-                client.move_task(task_id, new_col)
+                move_task(task_data, path, new_col)
                 st.success(f"Moved to {new_col}")
                 st.rerun()
             except Exception as e:
@@ -443,7 +447,7 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
         if st.button("Reassign", key=f"detail_reassign_btn_{task_id}"):
             if new_assignee != "(none)":
                 try:
-                    client.reassign_task(task_id, new_assignee, keep_existing=False)
+                    assign_task(task_data, path, new_assignee)
                     st.success(f"Reassigned to {new_assignee}")
                     st.rerun()
                 except Exception as e:
@@ -469,11 +473,23 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
             if st.button("Post Comment", key=f"post_comment_{task_id}"):
                 if new_comment.strip():
                     try:
-                        comment_id = client.add_comment(task_id, new_comment.strip())
+                        import uuid
+                        comment_id = f"C-{uuid.uuid4().hex[:8]}"
+                        task_data["updated_at"] = now_iso()
+                        comment_entry = {
+                            "comment_id": comment_id,
+                            "at": task_data["updated_at"],
+                            "by": "ui",  # UI user
+                            "event": "comment",
+                            "details": new_comment.strip(),
+                        }
+                        task_data.setdefault("history", []).append(comment_entry)
+                        save_yaml(path, task_data)
                         st.success(f"Comment added (ID: {comment_id})")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
+                        logger.error(f"Error adding comment: {e}", exc_info=True)
         
         # Display comments
         if comments:
@@ -600,70 +616,6 @@ def main() -> None:
     columns = board.get("columns", [])
     col_ids = [c["id"] for c in columns]
 
-    # Header with buttons
-    header_col1, header_col2, header_col3 = st.columns([1, 1, 10])
-    with header_col1:
-        if st.button("➕ New Task", type="primary", use_container_width=True, key="new_task_btn"):
-            st.session_state["show_new_task_modal"] = True
-    with header_col2:
-        if st.button("🔄 Refresh", use_container_width=True, key="refresh_btn"):
-            st.session_state["last_task_mtime"] = 0
-            st.rerun()
-    with header_col3:
-        st.title("AI Agent Task Board")
-
-    # New task modal
-    if st.session_state.get("show_new_task_modal", False):
-        with st.container():
-            st.markdown("### Create New Task")
-            with st.form("new_task_form", clear_on_submit=False):
-                title = st.text_input("Title *", key="modal_task_title")
-                description = st.text_area("Description", height=100, key="modal_task_desc")
-                column_id = st.selectbox("Column", col_ids, key="modal_task_column")
-                priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="modal_task_priority")
-                tag_str = st.text_input("Tags (comma separated)", key="modal_task_tags")
-                assignee_multiselect = st.multiselect(
-                    "Assignees",
-                    [a["id"] for a in agents] if agents else [],
-                    key="modal_task_assignees",
-                )
-                due_date_str = st.text_input("Due date (optional text)", value="", key="modal_task_due")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
-                with col2:
-                    if st.form_submit_button("Cancel", use_container_width=True):
-                        st.session_state["show_new_task_modal"] = False
-                        st.rerun()
-                
-                if submitted:
-                    if not title or not title.strip():
-                        st.error("Title is required")
-                    else:
-                        try:
-                            task_id = create_task(
-                                title.strip(),
-                                description.strip() if description else "",
-                                column_id,
-                                assignee_multiselect,
-                                priority,
-                                tag_str.strip() if tag_str else "",
-                                due_date_str.strip() or None,
-                            )
-                            st.success(f"✅ Created task {task_id}")
-                            st.session_state["show_new_task_modal"] = False
-                            # Update last modification time
-                            board_root = get_board_root()
-                            tasks_root = board_root / "tasks" / column_id
-                            task_file = tasks_root / f"{task_id}.yaml"
-                            if task_file.exists():
-                                st.session_state["last_task_mtime"] = task_file.stat().st_mtime
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error creating task: {e}")
-                            logger.error(f"Error creating task: {e}", exc_info=True)
-
     # Load all tasks (no filtering for now - can add filters later)
     tasks_by_column = {cid: [] for cid in col_ids}
     for path, task in iter_tasks():
@@ -682,7 +634,8 @@ def main() -> None:
         for path, task in task_list:
             deal_to_task_map[task.get("id", "")] = (path, task)
     
-    # Render kanban board - full height
+    # Render kanban board natively - no custom containers
+    # The component will render its own UI including filters and controls
     try:
         # Provide user_info to component for permissions
         user_info = {
@@ -691,15 +644,78 @@ def main() -> None:
             "email": "ui@crewkan.local",
         }
         
+        # Call component directly - let it render natively with its own UI
         result = kanban_board(
             stages=stages,
             deals=deals,
             key="crewkan_board",
-            height=800,  # Increased height for full screen
+            height=800,
             allow_empty_stages=True,
             show_tooltips=True,
             user_info=user_info,
         )
+        
+        # Add buttons after component renders (using Streamlit's native layout)
+        # These will appear below the kanban board
+        button_col1, button_col2 = st.columns(2)
+        with button_col1:
+            if st.button("➕ New Task", type="primary", use_container_width=True, key="new_task_btn"):
+                st.session_state["show_new_task_modal"] = True
+        with button_col2:
+            if st.button("🔄 Refresh", use_container_width=True, key="refresh_btn"):
+                st.session_state["last_task_mtime"] = 0
+                st.rerun()
+        
+        # New task form (appears below buttons if modal is open)
+        if st.session_state.get("show_new_task_modal", False):
+            with st.expander("➕ Create New Task", expanded=True):
+                with st.form("new_task_form", clear_on_submit=False):
+                    title = st.text_input("Title *", key="modal_task_title")
+                    description = st.text_area("Description", height=100, key="modal_task_desc")
+                    column_id = st.selectbox("Column", col_ids, key="modal_task_column")
+                    priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="modal_task_priority")
+                    tag_str = st.text_input("Tags (comma separated)", key="modal_task_tags")
+                    assignee_multiselect = st.multiselect(
+                        "Assignees",
+                        [a["id"] for a in agents] if agents else [],
+                        key="modal_task_assignees",
+                    )
+                    due_date_str = st.text_input("Due date (optional text)", value="", key="modal_task_due")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
+                    with col2:
+                        if st.form_submit_button("Cancel", use_container_width=True):
+                            st.session_state["show_new_task_modal"] = False
+                            st.rerun()
+                    
+                    if submitted:
+                        if not title or not title.strip():
+                            st.error("Title is required")
+                        else:
+                            try:
+                                task_id = create_task(
+                                    title.strip(),
+                                    description.strip() if description else "",
+                                    column_id,
+                                    assignee_multiselect,
+                                    priority,
+                                    tag_str.strip() if tag_str else "",
+                                    due_date_str.strip() or None,
+                                )
+                                st.success(f"✅ Created task {task_id}")
+                                st.session_state["show_new_task_modal"] = False
+                                # Update last modification time
+                                board_root = get_board_root()
+                                tasks_root = board_root / "tasks" / column_id
+                                task_file = tasks_root / f"{task_id}.yaml"
+                                if task_file.exists():
+                                    st.session_state["last_task_mtime"] = task_file.stat().st_mtime
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error creating task: {e}")
+                                logger.error(f"Error creating task: {e}", exc_info=True)
         
         # Handle drag-and-drop: task moved to different column
         if result and result.get("moved_deal"):
