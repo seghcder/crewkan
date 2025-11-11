@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import logging
+import json
 from datetime import datetime
 
 # Add parent directory to path for imports
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id
 from crewkan.board_core import BoardClient, BoardError
+from crewkan.kanban_native import kanban_board
 
 # Set up logging to file in tmp directory
 log_dir = Path(__file__).resolve().parent.parent.parent / "tmp"
@@ -73,14 +75,18 @@ def load_agents():
 
 
 def iter_tasks():
+    """Iterate over all tasks from both 'tasks' and 'issues' directories."""
     board_root = get_board_root()
-    tasks_root = board_root / "tasks"
-    if not tasks_root.exists():
-        return
-    for path in tasks_root.rglob("*.yaml"):
-        data = load_yaml(path)
-        if isinstance(data, dict):
-            yield path, data
+    
+    # Check both 'tasks' and 'issues' directories for backwards compatibility
+    for dir_name in ["tasks", "issues"]:
+        tasks_root = board_root / dir_name
+        if not tasks_root.exists():
+            continue
+        for path in tasks_root.rglob("*.yaml"):
+            data = load_yaml(path)
+            if isinstance(data, dict):
+                yield path, data
 
 
 def move_task(task_data: Dict[str, Any], task_path: Path, new_column: str) -> None:
@@ -433,7 +439,110 @@ def render_task_details_page(task_id: str, task_data: dict, path: Path) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="AI Agent Board", layout="wide")
+    # Configure page for full-screen kanban
+    st.set_page_config(
+        page_title="AI Agent Board",
+        layout="wide",
+        initial_sidebar_state="collapsed",  # Hide sidebar by default
+    )
+    
+    # Hide sidebar and set black background
+    st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+        .stApp {
+            margin-top: 0rem;
+            background-color: #000000 !important;
+            min-height: 100vh;
+        }
+        .main .block-container {
+            background-color: #000000 !important;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            max-width: 100%;
+        }
+        .stApp > header {
+            background-color: #000000;
+        }
+        [data-testid="stHeader"] {
+            background-color: #000000;
+        }
+        [data-testid="stToolbar"] {
+            background-color: #000000;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # CRITICAL: Add postMessage listener in MAIN page context (before any iframes)
+    # Streamlit's st.markdown() with unsafe_allow_html may not execute scripts
+    # Use st.components.v1.html to inject a script that sets up listener in main window
+    import streamlit.components.v1 as components
+    
+    # Create a script that runs in an iframe but injects listener into main window
+    listener_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+    </head>
+    <body>
+        <script>
+            // This script runs in an iframe, but we inject the listener into the main window
+            try {
+                if (window.top && window.top !== window) {
+                    console.log('🔧 KANBAN: Injecting listener into main window from iframe');
+                    
+                    // Inject script into main window
+                    const script = window.top.document.createElement('script');
+                    script.textContent = `
+                        (function() {
+                            console.log('🔧 KANBAN: Listener script injected into main window');
+                            
+                            function handleKanbanMessage(event) {
+                                console.log('📨 KANBAN: Listener received message');
+                                console.log('📨 KANBAN: Event data:', event.data);
+                                console.log('📨 KANBAN: Event origin:', event.origin);
+                                
+                                if (event.data && event.data.type === 'kanban_event') {
+                                    console.log('✅ KANBAN: Processing kanban_event');
+                                    const kanbanEvent = event.data.event;
+                                    console.log('✅ KANBAN: Event details:', kanbanEvent);
+                                    
+                                    const params = new URLSearchParams(window.location.search);
+                                    params.set('kanban_event', JSON.stringify(kanbanEvent));
+                                    const newUrl = window.location.pathname + '?' + params.toString();
+                                    console.log('🔄 KANBAN: Navigating to:', newUrl);
+                                    window.location.href = newUrl;
+                                } else {
+                                    console.log('ℹ️ KANBAN: Ignoring message (not kanban_event)');
+                                }
+                            }
+                            
+                            // Add listener to main window
+                            window.addEventListener('message', handleKanbanMessage, true);
+                            window.addEventListener('message', handleKanbanMessage, false);
+                            console.log('✅ KANBAN: Listeners added to main window');
+                        })();
+                    `;
+                    window.top.document.head.appendChild(script);
+                    console.log('✅ KANBAN: Script injected into main window');
+                } else {
+                    console.warn('⚠️ KANBAN: Cannot access window.top');
+                }
+            } catch (e) {
+                console.error('❌ KANBAN: Error injecting listener:', e);
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Render the listener component (invisible, height 0)
+    components.html(listener_html, height=0)
     
     logger.info("=== Main function called ===")
     logger.info(f"Session state keys: {list(st.session_state.keys())}")
@@ -450,14 +559,18 @@ def main() -> None:
         del st.session_state["viewing_task"]
         st.rerun()
 
-    # Title with refresh button
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.title("AI Agent Task Board")
-    with col2:
-        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True, key="manual_refresh"):
-            st.session_state["last_task_mtime"] = 0  # Force refresh
+    # Buttons at top
+    button_col1, button_col2, button_col3 = st.columns([1, 1, 4])
+    with button_col1:
+        if st.button("➕ New Task", type="primary", use_container_width=True, key="new_task_btn"):
+            st.session_state["show_new_task_modal"] = True
             st.rerun()
+    with button_col2:
+        if st.button("🔄 Refresh", use_container_width=True, key="refresh_btn"):
+            st.session_state["last_task_mtime"] = 0
+            st.rerun()
+    with button_col3:
+        st.write("")  # Spacer
 
     # Smart filesystem change detection - only check when not processing form submission
     # Initialize last check time
@@ -496,302 +609,211 @@ def main() -> None:
                     # Only rerun if we're not in a form context
                     if not st.session_state.get("in_form_context", False):
                         st.rerun()
-    
-    # Manual refresh button
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🔄 Refresh", help="Manually refresh the board to see latest changes", use_container_width=True):
-            st.session_state["last_task_mtime"] = 0  # Force refresh
-            st.rerun()
 
     board = load_board()
     agents = load_agents()
     columns = board.get("columns", [])
     col_ids = [c["id"] for c in columns]
 
-    # Sidebar filters
-    st.sidebar.header("Filters")
+    # New task form (modal-style, appears if button clicked)
+    if st.session_state.get("show_new_task_modal", False):
+        with st.expander("➕ Create New Task", expanded=True):
+            with st.form("new_task_form", clear_on_submit=False):
+                title = st.text_input("Title *", key="new_task_title")
+                description = st.text_area("Description", height=100, key="new_task_desc")
+                column_id = st.selectbox("Column", col_ids, key="new_task_column")
+                priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="new_task_priority")
+                tag_str = st.text_input("Tags (comma separated)", key="new_task_tags")
+                assignee_multiselect = st.multiselect(
+                    "Assignees",
+                    [a["id"] for a in agents] if agents else [],
+                    key="new_task_assignees",
+                )
+                due_date_str = st.text_input("Due date (optional text)", value="", key="new_task_due")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
+                with col2:
+                    if st.form_submit_button("Cancel", use_container_width=True):
+                        st.session_state["show_new_task_modal"] = False
+                        st.rerun()
+                
+                if submitted:
+                    if not title or not title.strip():
+                        st.error("Title is required")
+                    else:
+                        try:
+                            task_id = create_task(
+                                title.strip(),
+                                description.strip() if description else "",
+                                column_id,
+                                assignee_multiselect,
+                                priority,
+                                tag_str.strip() if tag_str else "",
+                                due_date_str.strip() or None,
+                            )
+                            st.success(f"✅ Created task {task_id}")
+                            st.session_state["show_new_task_modal"] = False
+                            # Update last modification time
+                            board_root = get_board_root()
+                            tasks_root = board_root / "tasks" / column_id
+                            task_file = tasks_root / f"{task_id}.yaml"
+                            if task_file.exists():
+                                st.session_state["last_task_mtime"] = task_file.stat().st_mtime
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error creating task: {e}")
+                            logger.error(f"Error creating task: {e}", exc_info=True)
 
-    agent_options = ["(all)"] + [a["id"] for a in agents]
-    selected_agent = st.sidebar.selectbox("Filter by agent", agent_options)
-
-    col_filter_options = ["(all)"] + col_ids
-    selected_column_filter = st.sidebar.selectbox("Filter by column", col_filter_options)
-
-    # New task form - improved with better error handling
-    st.sidebar.header("New task")
+    # Load all tasks
+    all_tasks = []
+    task_path_map = {}  # Map task_id to (path, task) for quick lookup
     
-    logger.debug(f"Setting up form. Agents available: {[a['id'] for a in agents]}")
-    
-    # Show any previous error/success message
-    if "create_task_message" in st.session_state:
-        msg_type = st.session_state.get("create_task_message_type", "info")
-        msg = st.session_state["create_task_message"]
-        logger.info(f"Showing message: {msg_type} - {msg}")
-        if msg_type == "success":
-            st.sidebar.success(msg)
-            # Also show a toast notification
-            st.toast(msg, icon="✅")
-        elif msg_type == "error":
-            st.sidebar.error(msg)
-            st.toast(msg, icon="❌")
-        # Clear message after showing
-        del st.session_state["create_task_message"]
-        del st.session_state["create_task_message_type"]
-    
-    # Mark that we're in form context to prevent auto-refresh interference
-    st.session_state["in_form_context"] = True
-    
-    with st.sidebar.form("new_task_form", clear_on_submit=True):
-        title = st.text_input("Title *", key="new_task_title")
-        description = st.text_area("Description", height=100, key="new_task_desc")
-        column_id = st.selectbox("Column", col_ids, key="new_task_column")
-        priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="new_task_priority")
-        tag_str = st.text_input("Tags (comma separated)", key="new_task_tags")
-        assignee_multiselect = st.multiselect(
-            "Assignees",
-            [a["id"] for a in agents] if agents else [],
-            key="new_task_assignees",
-        )
-        due_date_str = st.text_input("Due date (optional text)", value="", key="new_task_due")
-        
-        submitted = st.form_submit_button("Create Task", type="primary", use_container_width=True)
-        
-        # Process form submission immediately when button is clicked
-        # With clear_on_submit=True, form values are cleared AFTER this block runs
-        # So we capture and process values while they're still available
-        if submitted:
-            # Mark that we're processing form to prevent auto-refresh
-            st.session_state["form_processing"] = True
-            # Capture form values immediately (they'll be cleared after this block)
-            captured_title = title
-            captured_description = description
-            captured_column = column_id
-            captured_priority = priority
-            captured_tags = tag_str
-            captured_assignees = assignee_multiselect
-            captured_due_date = due_date_str
-            logger.info("=" * 50)
-            logger.info("FORM SUBMITTED!")
-            logger.info(f"Title: '{captured_title}'")
-            logger.info(f"Description: '{captured_description}'")
-            logger.info(f"Column: {captured_column}")
-            logger.info(f"Priority: {captured_priority}")
-            logger.info(f"Tags: '{captured_tags}'")
-            logger.info(f"Assignees: {captured_assignees}")
-            logger.info(f"Due date: '{captured_due_date}'")
-            logger.info("=" * 50)
-            
-            if not captured_title or not captured_title.strip():
-                logger.warning("Form submitted but title is empty")
-                st.session_state["create_task_message"] = "⚠️ Title is required."
-                st.session_state["create_task_message_type"] = "error"
-                st.rerun()
-            else:
-                try:
-                    logger.info(f"Attempting to create task: '{captured_title.strip()}'")
-                    task_id = create_task(
-                        captured_title.strip(),
-                        captured_description.strip() if captured_description else "",
-                        captured_column,
-                        captured_assignees,
-                        captured_priority,
-                        captured_tags.strip() if captured_tags else "",
-                        captured_due_date.strip() or None,
-                    )
-                    logger.info(f"✅ Task created successfully: {task_id}")
-                    success_msg = f"✅ Created task {task_id}"
-                    st.session_state["create_task_message"] = success_msg
-                    st.session_state["create_task_message_type"] = "success"
-                    # Show immediate confirmation
-                    st.toast(success_msg, icon="✅")
-                    logger.info("Triggering rerun after successful task creation")
-                    # Clear form processing flag
-                    st.session_state["form_processing"] = False
-                    st.session_state["in_form_context"] = False
-                    # Update last modification time to prevent immediate refresh
-                    board_root = get_board_root()
-                    tasks_root = board_root / "tasks" / captured_column
-                    task_file = tasks_root / f"{task_id}.yaml"
-                    if task_file.exists():
-                        st.session_state["last_task_mtime"] = task_file.stat().st_mtime
-                    # Form will be cleared automatically by clear_on_submit=True
-                    st.rerun()
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"❌ Failed to create task: {error_msg}", exc_info=True)
-                    st.session_state["create_task_message"] = f"❌ Error: {error_msg}"
-                    st.session_state["create_task_message_type"] = "error"
-                    st.toast(f"Error: {error_msg}", icon="❌")
-                    # Store full error for debugging
-                    st.session_state["create_task_error_details"] = str(e)
-                    import traceback
-                    st.session_state["create_task_traceback"] = traceback.format_exc()
-                    logger.error(f"Full traceback:\n{st.session_state['create_task_traceback']}")
-                    # Clear form processing flag
-                    st.session_state["form_processing"] = False
-                    st.session_state["in_form_context"] = False
-                    # Form will be cleared automatically, but we rerun to show error
-                    st.rerun()
-    
-    # Clear form context flag after form block
-    if "in_form_context" in st.session_state and not st.session_state.get("form_processing", False):
-        st.session_state["in_form_context"] = False
-    
-    # Show error details if available
-    if "create_task_error_details" in st.session_state:
-        with st.sidebar.expander("Error details", expanded=False):
-            st.code(st.session_state.get("create_task_traceback", "No traceback available"))
-        # Clear after showing
-        del st.session_state["create_task_error_details"]
-        if "create_task_traceback" in st.session_state:
-            del st.session_state["create_task_traceback"]
-
-    # Load tasks and filter
-    tasks_by_column = {cid: [] for cid in col_ids}
     for path, task in iter_tasks():
         col = task.get("column")
-        if col not in tasks_by_column:
+        if col not in col_ids:
             continue
+        all_tasks.append(task)
+        task_path_map[task.get("id")] = (path, task)
 
-        if selected_agent != "(all)":
-            if selected_agent not in (task.get("assignees") or []):
-                continue
+    # Prepare columns for kanban component
+    kanban_columns = []
+    default_colors = {
+        "backlog": "#95a5a6",
+        "todo": "#3498db",
+        "doing": "#f39c12",
+        "blocked": "#e74c3c",
+        "done": "#27ae60",
+    }
+    
+    for col in columns:
+        col_id = col.get("id", "")
+        col_name = col.get("name", col_id)
+        color = default_colors.get(col_id, "#3498db")
+        kanban_columns.append({
+            "id": col_id,
+            "name": col_name,
+            "color": color,
+        })
 
-        if selected_column_filter != "(all)" and col != selected_column_filter:
-            continue
+    # Prepare tasks for kanban component
+    kanban_tasks = []
+    for task in all_tasks:
+        task_col = task.get("column", "")
+        task_id = task.get("id", "")
+        task_title = task.get("title", "Untitled")
+        
+        # Log for debugging
+        logger.debug(f"Preparing task: {task_id} - '{task_title}' in column '{task_col}'")
+        
+        kanban_tasks.append({
+            "id": task_id,
+            "title": task_title,
+            "column": task_col,
+            "priority": task.get("priority", "medium"),
+            "tags": task.get("tags", []),
+        })
+    
+    logger.info(f"Prepared {len(kanban_tasks)} tasks for kanban board")
+    logger.info(f"Columns: {[c['id'] for c in kanban_columns]}")
+    logger.info(f"Task columns: {[t['column'] for t in kanban_tasks]}")
 
-        tasks_by_column[col].append((path, task))
-
-    # Render columns as horizontal layout
-    cols = st.columns(len(columns)) if columns else []
-
-    for idx, col_def in enumerate(columns):
-        cid = col_def["id"]
-        cname = col_def.get("name", cid)
-        col_tasks = tasks_by_column.get(cid, [])
-
-        with cols[idx]:
-            st.subheader(cname)
-            if not col_tasks:
-                st.write("_No tasks_")
-                continue
-
-            for path, task in col_tasks:
-                tid = task.get("id")
-                title = task.get("title", "")
-                assignees = ", ".join(task.get("assignees") or [])
-                priority = task.get("priority", "medium")
-                tags = ", ".join(task.get("tags") or [])
-                due = task.get("due_date") or ""
-
-                # Display task - filename in dropdown, not in top description
-                with st.expander(f"{title}", expanded=False):
-                    st.caption(f"ID: {tid} | File: {path.name}")
-                    st.markdown(f"**Priority:** {priority}")
-                    st.markdown(f"**Assignees:** {assignees or '-'}")
-                    st.markdown(f"**Tags:** {tags or '-'}")
-                    if due:
-                        st.markdown(f"**Due:** {due}")
-                    desc = task.get("description", "")
-                    if desc:
-                        st.markdown("---")
-                        st.markdown(desc)
-                    
-                    # View Details button
-                    if st.button("View Details", key=f"view_details_{tid}"):
-                        st.session_state["viewing_task"] = tid
+    # Initialize session state for kanban events if not exists
+    if "kanban_events" not in st.session_state:
+        st.session_state["kanban_events"] = []
+    
+    # Check for kanban events from query parameters (set by JavaScript)
+    query_params = st.query_params
+    logger.debug(f"Checking query params: {dict(query_params)}")
+    
+    # Also check session state for events (set by postMessage handler)
+    if "pending_kanban_event" in st.session_state:
+        event = st.session_state["pending_kanban_event"]
+        logger.info(f"🎯 Found pending kanban event in session state: {event}")
+        del st.session_state["pending_kanban_event"]
+        # Process it as if it came from query params
+        query_params = {"kanban_event": [json.dumps(event)]}
+    
+    if "kanban_event" in query_params:
+        logger.info(f"🎯 Found kanban_event in query params: {query_params['kanban_event']}")
+        try:
+            event = json.loads(query_params["kanban_event"])
+            logger.info(f"📋 Parsed event: {event}")
+            event_type = event.get("type")
+            logger.info(f"📋 Event type: {event_type}")
+            
+            if event_type == "move":
+                task_id = event.get("taskId")
+                from_column = event.get("fromColumn")
+                to_column = event.get("toColumn")
+                
+                logger.info(f"🔄 Move event - Task: {task_id}, From: {from_column}, To: {to_column}")
+                logger.info(f"📋 Task path map keys: {list(task_path_map.keys())[:10]}...")  # Show first 10
+                
+                if task_id and task_id in task_path_map:
+                    path, task = task_path_map[task_id]
+                    logger.info(f"✅ Task found in map. Path: {path}")
+                    logger.info(f"Drag-drop: Moving task {task_id} from {from_column} to {to_column}")
+                    try:
+                        move_task(task, path, to_column)
+                        logger.info(f"✅ Successfully moved task {task_id} to {to_column}")
+                        # Update last modification time
+                        board_root = get_board_root()
+                        # Check both tasks and issues directories
+                        for dir_name in ["tasks", "issues"]:
+                            tasks_root = board_root / dir_name / to_column
+                            task_file = tasks_root / f"{task_id}.yaml"
+                            if task_file.exists():
+                                st.session_state["last_task_mtime"] = task_file.stat().st_mtime
+                                logger.info(f"✅ Updated mtime from {task_file}")
+                                break
+                        # Clear query param and rerun
+                        logger.info("🧹 Clearing query params and rerunning...")
+                        st.query_params.clear()
                         st.rerun()
+                    except Exception as e:
+                        logger.error(f"❌ Error moving task: {e}", exc_info=True)
+                        st.error(f"Error moving task: {e}")
+                        st.query_params.clear()
+                else:
+                    logger.warning(f"⚠️ Task {task_id} not found in task_path_map")
+                    logger.warning(f"  Available task IDs: {list(task_path_map.keys())[:10]}")
+                    st.query_params.clear()
+            
+            elif event_type == "click":
+                task_id = event.get("taskId")
+                logger.info(f"🖱️ Click event - Task: {task_id}")
+                if task_id and task_id in task_path_map:
+                    logger.info(f"Task clicked: {task_id}")
+                    st.query_params.clear()
+                    st.session_state["viewing_task"] = task_id
+                    st.rerun()
+                else:
+                    logger.warning(f"⚠️ Task {task_id} not found for click")
+                    st.query_params.clear()
+        except Exception as e:
+            logger.error(f"❌ Error processing kanban event: {e}", exc_info=True)
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            st.query_params.clear()
+    else:
+        logger.debug("No kanban_event in query params")
 
-                    # Rename task
-                    new_title = st.text_input(
-                        "Rename task",
-                        value=title,
-                        key=f"rename_input_{tid}",
-                    )
-                    if st.button("Rename", key=f"rename_btn_{tid}"):
-                        if new_title and new_title != title:
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                client.update_task_field(tid, "title", new_title)
-                                st.success(f"Renamed to: {new_title}")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error renaming: {e}")
-
-                    # Update tags
-                    new_tags_str = st.text_input(
-                        "Tags (comma separated)",
-                        value=tags,
-                        key=f"tags_input_{tid}",
-                    )
-                    if st.button("Update Tags", key=f"tags_btn_{tid}"):
-                        if new_tags_str != tags:
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                # Tags need to be updated as a list
-                                new_tags = [t.strip() for t in new_tags_str.split(",") if t.strip()] if new_tags_str else []
-                                # Update task directly for tags (update_task_field expects string)
-                                task["tags"] = new_tags
-                                task["updated_at"] = now_iso()
-                                task.setdefault("history", []).append({
-                                    "at": task["updated_at"],
-                                    "by": "ui",
-                                    "event": "tags_updated",
-                                    "details": f"Tags: {', '.join(new_tags)}",
-                                })
-                                save_yaml(path, task)
-                                st.success("Tags updated")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error updating tags: {e}")
-
-                    # Move task
-                    target_col = st.selectbox(
-                        "Move to column",
-                        ["(no change)"] + col_ids,
-                        key=f"move_select_{tid}",
-                    )
-                    if st.button("Move", key=f"move_btn_{tid}"):
-                        if target_col != "(no change)":
-                            move_task(task, path, target_col)
-                            st.rerun()
-
-                    # Assign task
-                    assign_to = st.selectbox(
-                        "Assign to agent",
-                        ["(none)"] + [a["id"] for a in agents],
-                        key=f"assign_select_{tid}",
-                    )
-                    if st.button("Assign", key=f"assign_btn_{tid}"):
-                        if assign_to != "(none)":
-                            assign_task(task, path, assign_to)
-                            st.rerun()
+    # Render native kanban board
+    try:
+        kanban_board(
+            columns=kanban_columns,
+            tasks=kanban_tasks,
+            height=800,
+            key="native_kanban_board",
+        )
                     
-                    # Add comment
-                    comment_text = st.text_area(
-                        "Add comment",
-                        key=f"comment_input_{tid}",
-                        height=60,
-                    )
-                    if st.button("Add Comment", key=f"comment_btn_{tid}"):
-                        if comment_text.strip():
-                            try:
-                                board_root = path.parent.parent.parent
-                                agents = load_agents()
-                                default_agent = agents[0]["id"] if agents else "ui"
-                                client = BoardClient(board_root, default_agent)
-                                client.add_comment(tid, comment_text.strip())
-                                st.success("Comment added")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error adding comment: {e}")
+    except Exception as e:
+        logger.error(f"Error rendering kanban board: {e}", exc_info=True)
+        st.error(f"Error rendering kanban board: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 
 if __name__ == "__main__":
