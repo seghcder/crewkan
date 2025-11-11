@@ -42,18 +42,37 @@ function initComponent() {
             tasks = newTasks;
             height = newHeight;
             
-            // Set container height
-            document.body.style.height = height + 'px';
-            container.style.height = height + 'px';
+            // Set container height to viewport (ignore passed height for full-screen)
+            const viewportHeight = window.innerHeight;
+            document.body.style.height = viewportHeight + 'px';
+            container.style.height = viewportHeight + 'px';
+            container.style.width = '100vw';
             
             // Render the board
             renderBoard();
         }
         
-        // Only update frame height if it changed
-        if (newHeight !== lastFrameHeight) {
-            lastFrameHeight = newHeight;
-            Streamlit.setFrameHeight(newHeight);
+        // Always use viewport height for full-screen
+        const viewportHeight = window.innerHeight;
+        if (viewportHeight !== lastFrameHeight) {
+            lastFrameHeight = viewportHeight;
+            Streamlit.setFrameHeight(viewportHeight);
+        }
+    });
+    
+    // Handle window resize to update frame height
+    window.addEventListener('resize', () => {
+        const viewportHeight = window.innerHeight;
+        if (viewportHeight !== lastFrameHeight) {
+            lastFrameHeight = viewportHeight;
+            Streamlit.setFrameHeight(viewportHeight);
+            // Update container dimensions
+            const container = document.getElementById('kanban-container');
+            if (container) {
+                container.style.height = viewportHeight + 'px';
+                container.style.width = '100vw';
+            }
+            document.body.style.height = viewportHeight + 'px';
         }
     });
 }
@@ -137,10 +156,11 @@ function renderBoard() {
         container.appendChild(columnDiv);
     });
     
-    // Only update frame height if it changed (avoid unnecessary reruns)
-    if (height !== lastFrameHeight) {
-        lastFrameHeight = height;
-        Streamlit.setFrameHeight(height);
+    // Always use viewport height for full-screen
+    const viewportHeight = window.innerHeight;
+    if (viewportHeight !== lastFrameHeight) {
+        lastFrameHeight = viewportHeight;
+        Streamlit.setFrameHeight(viewportHeight);
     }
 }
 
@@ -338,38 +358,46 @@ style.textContent = `
         box-sizing: border-box;
     }
 
-    body {
+    html, body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         background-color: #000000;
         color: #ffffff;
-        height: 100vh;
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
         overflow: hidden;
     }
 
     .kanban-container {
         display: flex;
         height: 100vh;
-        padding: 10px;
-        gap: 15px;
+        width: 100vw;
+        padding: 0;
+        gap: 0;
         overflow-x: auto;
         overflow-y: hidden;
     }
 
     .kanban-column {
-        flex: 1;
+        flex: 1 1 auto;
         min-width: 280px;
-        max-width: 350px;
         background-color: #1a1a1a;
-        border-radius: 8px;
+        border-radius: 0;
         display: flex;
         flex-direction: column;
-        border: 1px solid #333;
+        border-right: 1px solid #333;
+        height: 100vh;
+    }
+    
+    .kanban-column:last-child {
+        border-right: none;
     }
 
     .column-header {
         background-color: #2a2a2a;
         padding: 12px 16px;
-        border-radius: 8px 8px 0 0;
+        border-radius: 0;
         font-weight: 600;
         font-size: 14px;
         color: #fff;
@@ -378,6 +406,7 @@ style.textContent = `
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-shrink: 0;
     }
 
     .column-count {

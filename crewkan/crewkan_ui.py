@@ -660,13 +660,16 @@ def main() -> None:
         st.session_state["kanban_processed_events"] = set()
     
     # Render native kanban board and get return value
+    # Use container with no padding for full-width display
     try:
-        result = kanban_board(
-            columns=kanban_columns,
-            tasks=kanban_tasks,
-            height=800,
-            key="native_kanban_board",
-        )
+        # Use a large height value - component will use viewport height anyway
+        with st.container():
+            result = kanban_board(
+                columns=kanban_columns,
+                tasks=kanban_tasks,
+                height=2000,  # Large value, component uses viewport height
+                key="native_kanban_board",
+            )
         
         # Process component return value (events from drag-drop or clicks)
         # Only process if we haven't seen this event before (deduplicate)
