@@ -58,6 +58,10 @@ tmp/
 *.png
 *.html
 
+# Frontend build artifacts
+crewkan/kanban_native/frontend/node_modules/
+crewkan/kanban_native/frontend/build/
+
 # Environment variables
 .env
 .env.local

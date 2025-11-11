@@ -1,21 +1,42 @@
 """
 Native Kanban Board Component for CrewKan
 
-Uses HTML5 drag-and-drop API via Streamlit's HTML component.
-No external dependencies, full control over styling and behavior.
+Bi-directional Streamlit component with HTML5 drag-and-drop API.
+Uses components.declare_component() for proper event communication.
 """
 
 import streamlit.components.v1 as components
 from pathlib import Path
-import json
+import os
 
-# Get the path to the HTML file
+# Determine if we're in development or production
+# Default to production if build exists, otherwise dev mode
+_build_dir = Path(__file__).parent / "frontend" / "build"
+_has_build = _build_dir.exists() and (_build_dir / "index.js").exists()
+_RELEASE = os.getenv("KANBAN_COMPONENT_RELEASE", "true" if _has_build else "false").lower() == "true"
+
+# Get the path to the frontend directory
 _component_dir = Path(__file__).parent
-_html_path = _component_dir / "kanban.html"
+_frontend_dir = _component_dir / "frontend"
 
-# Read HTML content
-with open(_html_path, 'r', encoding='utf-8') as f:
-    _html_template = f.read()
+if not _RELEASE:
+    # Development mode: use dev server
+    _component_func = components.declare_component(
+        "kanban_board",
+        url="http://localhost:3001"
+    )
+else:
+    # Production mode: use built files
+    build_dir = _frontend_dir / "build"
+    if not build_dir.exists():
+        raise RuntimeError(
+            f"Frontend build directory not found: {build_dir}\n"
+            "Please run 'npm run build' in the frontend directory."
+        )
+    _component_func = components.declare_component(
+        "kanban_board",
+        path=str(build_dir)
+    )
 
 def kanban_board(columns, tasks, height=800, key=None):
     """
@@ -51,38 +72,14 @@ def kanban_board(columns, tasks, height=800, key=None):
         - taskId: Task ID
         - fromColumn: Source column (for moves)
         - toColumn: Target column (for moves)
+        - timestamp: int - Event timestamp
     """
     
-    # Inject data into HTML as embedded JSON
-    # This is more reliable than trying to pass via args
-    data_script = f"""
-    <script>
-        window.kanbanData = {json.dumps({
-            "columns": columns,
-            "tasks": tasks,
-            "height": height
-        })};
-    </script>
-    """
-    
-    # Insert data script before closing </head>
-    html_content = _html_template.replace('</head>', data_script + '</head>')
-    
-    # Note: Initialization is handled in the main script block
-    # The data script is injected before </head>, and the main script
-    # will pick it up when it runs
-    
-    # Note: st.components.v1.html doesn't support return values directly
-    # We'll use session state for communication instead
-    # The HTML component will trigger reruns via JavaScript
-    
-    # Prepare data for HTML component
-    # Note: components.html() doesn't support 'key' parameter
-    components.html(
-        html_content,
+    # Call the component and return its value
+    return _component_func(
+        columns=columns,
+        tasks=tasks,
         height=height,
+        key=key
     )
-    
-    # Return None - events will be handled via session state
-    return None
 

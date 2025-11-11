@@ -477,57 +477,6 @@ def main() -> None:
         </style>
     """, unsafe_allow_html=True)
     
-    # CRITICAL: Add postMessage listener in MAIN page context (before any iframes)
-    # Streamlit's st.markdown() with unsafe_allow_html may not execute scripts
-    # Use st.components.v1.html to inject a script that sets up listener in main window
-    import streamlit.components.v1 as components
-    
-    # Create a script that runs in an iframe but injects listener into main window
-    listener_html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-    </head>
-    <body>
-        <script>
-            // This script runs in an iframe, but we inject the listener into the main window
-            try {
-                if (window.top && window.top !== window) {
-                    // Inject script into main window
-                    const script = window.top.document.createElement('script');
-                    script.textContent = `
-                        (function() {
-                            function handleKanbanMessage(event) {
-                                if (event.data && event.data.type === 'kanban_event') {
-                                    const kanbanEvent = event.data.event;
-                                    const params = new URLSearchParams(window.location.search);
-                                    params.set('kanban_event', JSON.stringify(kanbanEvent));
-                                    const newUrl = window.location.pathname + '?' + params.toString();
-                                    window.location.href = newUrl;
-                                }
-                            }
-                            
-                            // Add listener to main window (capture and bubble phases)
-                            window.addEventListener('message', handleKanbanMessage, true);
-                            window.addEventListener('message', handleKanbanMessage, false);
-                        })();
-                    `;
-                    window.top.document.head.appendChild(script);
-                } else {
-                    console.warn('⚠️ KANBAN: Cannot access window.top');
-                }
-            } catch (e) {
-                console.error('❌ KANBAN: Error injecting listener:', e);
-            }
-        </script>
-    </body>
-    </html>
-    """
-    
-    # Render the listener component (invisible, height 0)
-    components.html(listener_html, height=0)
-    
     logger.info("=== Main function called ===")
     logger.info(f"Session state keys: {list(st.session_state.keys())}")
 
@@ -703,37 +652,29 @@ def main() -> None:
     logger.info(f"Columns: {[c['id'] for c in kanban_columns]}")
     logger.info(f"Task columns: {[t['column'] for t in kanban_tasks]}")
 
-    # Initialize session state for kanban events if not exists
-    if "kanban_events" not in st.session_state:
-        st.session_state["kanban_events"] = []
-    
-    # Check for kanban events from query parameters (set by JavaScript)
-    query_params = st.query_params
-    logger.debug(f"Checking query params: {dict(query_params)}")
-    
-    # Also check session state for events (set by postMessage handler)
-    if "pending_kanban_event" in st.session_state:
-        event = st.session_state["pending_kanban_event"]
-        logger.info(f"🎯 Found pending kanban event in session state: {event}")
-        del st.session_state["pending_kanban_event"]
-        # Process it as if it came from query params
-        query_params = {"kanban_event": [json.dumps(event)]}
-    
-    if "kanban_event" in query_params:
-        logger.info(f"🎯 Found kanban_event in query params: {query_params['kanban_event']}")
-        try:
-            event = json.loads(query_params["kanban_event"])
-            logger.info(f"📋 Parsed event: {event}")
-            event_type = event.get("type")
-            logger.info(f"📋 Event type: {event_type}")
+    # Process kanban component return value (bi-directional component)
+    # The component returns events directly, no need for query params or postMessage
+
+    # Render native kanban board and get return value
+    try:
+        result = kanban_board(
+            columns=kanban_columns,
+            tasks=kanban_tasks,
+            height=800,
+            key="native_kanban_board",
+        )
+        
+        # Process component return value (events from drag-drop or clicks)
+        if result:
+            logger.info(f"🎯 Kanban component returned: {result}")
+            event_type = result.get("type")
             
             if event_type == "move":
-                task_id = event.get("taskId")
-                from_column = event.get("fromColumn")
-                to_column = event.get("toColumn")
+                task_id = result.get("taskId")
+                from_column = result.get("fromColumn")
+                to_column = result.get("toColumn")
                 
                 logger.info(f"🔄 Move event - Task: {task_id}, From: {from_column}, To: {to_column}")
-                logger.info(f"📋 Task path map keys: {list(task_path_map.keys())[:10]}...")  # Show first 10
                 
                 if task_id and task_id in task_path_map:
                     path, task = task_path_map[task_id]
@@ -752,46 +693,24 @@ def main() -> None:
                                 st.session_state["last_task_mtime"] = task_file.stat().st_mtime
                                 logger.info(f"✅ Updated mtime from {task_file}")
                                 break
-                        # Clear query param and rerun
-                        logger.info("🧹 Clearing query params and rerunning...")
-                        st.query_params.clear()
+                        # Rerun to refresh the board
                         st.rerun()
                     except Exception as e:
                         logger.error(f"❌ Error moving task: {e}", exc_info=True)
                         st.error(f"Error moving task: {e}")
-                        st.query_params.clear()
                 else:
                     logger.warning(f"⚠️ Task {task_id} not found in task_path_map")
                     logger.warning(f"  Available task IDs: {list(task_path_map.keys())[:10]}")
-                    st.query_params.clear()
             
             elif event_type == "click":
-                task_id = event.get("taskId")
+                task_id = result.get("taskId")
                 logger.info(f"🖱️ Click event - Task: {task_id}")
                 if task_id and task_id in task_path_map:
                     logger.info(f"Task clicked: {task_id}")
-                    st.query_params.clear()
                     st.session_state["viewing_task"] = task_id
                     st.rerun()
                 else:
                     logger.warning(f"⚠️ Task {task_id} not found for click")
-                    st.query_params.clear()
-        except Exception as e:
-            logger.error(f"❌ Error processing kanban event: {e}", exc_info=True)
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            st.query_params.clear()
-    else:
-        logger.debug("No kanban_event in query params")
-
-    # Render native kanban board
-    try:
-        kanban_board(
-            columns=kanban_columns,
-            tasks=kanban_tasks,
-            height=800,
-            key="native_kanban_board",
-        )
                     
     except Exception as e:
         logger.error(f"Error rendering kanban board: {e}", exc_info=True)

@@ -1,0 +1,19 @@
+{
+  "name": "kanban-board-component",
+  "version": "1.0.0",
+  "description": "Native Kanban board component for CrewKan",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "export": "vite build"
+  },
+  "dependencies": {
+    "streamlit-component-lib": "^1.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
+
