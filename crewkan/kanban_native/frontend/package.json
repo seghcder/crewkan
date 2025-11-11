@@ -4,7 +4,7 @@
   "description": "Native Kanban board component for CrewKan",
   "scripts": {
     "start": "vite",
-    "build": "vite build",
+    "build": "vite build && node -e \"require('fs').writeFileSync('build/index.html', '<!DOCTYPE html>\\n<html lang=\\\"en\\\">\\n<head>\\n    <meta charset=\\\"UTF-8\\\">\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\">\\n    <title>Kanban Board Component</title>\\n</head>\\n<body>\\n    <script src=\\\"./index.js\\\"></script>\\n</body>\\n</html>\\n')\"",
     "export": "vite build"
   },
   "dependencies": {
