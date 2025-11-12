@@ -86,7 +86,7 @@ def test_corrupted_task_yaml():
         # Initialize board and create a task
         init_board(board_dir, "test", "Test Board", "test-agent", "test-agent")
         client = BoardClient(board_dir, "test-agent")
-        task_id = client.create_task("Test Task", "Description", "todo", ["test-agent"])
+        task_id = client.create_issue("Test Task", "Description", "todo", ["test-agent"])
         
         # Find task file
         task_path = board_dir / "tasks" / "todo" / f"{task_id}.yaml"

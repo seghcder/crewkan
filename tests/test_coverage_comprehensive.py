@@ -81,18 +81,18 @@ def run_coverage_comprehensive():
             cmd_list_agents,
             cmd_add_agent,
             cmd_remove_agent,
-            cmd_new_task,
-            cmd_list_tasks,
-            cmd_move_task,
-            cmd_assign_task,
+            cmd_new_issue,
+            cmd_list_issues,
+            cmd_move_issue,
+            cmd_assign_issue,
             cmd_validate,
-            cmd_start_task,
-            cmd_stop_task,
+            cmd_start_issue,
+            cmd_stop_issue,
             load_board,
             load_agents,
             save_agents,
             get_column_ids,
-            find_task_file,
+            find_issue_file,
             create_symlink,
             remove_symlink,
         )
@@ -140,7 +140,7 @@ def run_coverage_comprehensive():
             due_date=None,
             id=None,
         )
-        cmd_new_task(args)
+        cmd_new_issue(args)
         
         # Test new task with fallback (no agents)
         empty_board = temp_dir / "empty_board_cli"
@@ -162,7 +162,7 @@ def run_coverage_comprehensive():
             id="TEST-123",
         )
         try:
-            cmd_new_task(args)
+            cmd_new_issue(args)
         except RuntimeError:
             pass  # Expected - no agents
         
@@ -179,7 +179,7 @@ def run_coverage_comprehensive():
             id=None,
         )
         try:
-            cmd_new_task(args)
+            cmd_new_issue(args)
         except RuntimeError:
             pass  # Expected
         
@@ -187,33 +187,33 @@ def run_coverage_comprehensive():
         task_files = list((test_board / "tasks").rglob("*.yaml"))
         if task_files:
             task_id = task_files[0].stem
-            found_path = find_task_file(test_board, task_id)
+            found_path = find_issue_file(test_board, task_id)
         
         # Test list tasks
         args = MockArgs(root=str(test_board), column=None, agent=None)
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         # Test move task
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, column="doing")
-            cmd_move_task(args)
+            cmd_move_issue(args)
             
             # Test move task with invalid column
             args = MockArgs(root=str(test_board), task_id=task_id, column="invalid")
             try:
-                cmd_move_task(args)
+                cmd_move_issue(args)
             except RuntimeError:
                 pass  # Expected
         
         # Test assign task
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, assignee=["test-agent"])
-            cmd_assign_task(args)
+            cmd_assign_issue(args)
             
             # Test assign task with nonexistent task
             args = MockArgs(root=str(test_board), task_id="nonexistent", assignee=["test-agent"])
             try:
-                cmd_assign_task(args)
+                cmd_assign_issue(args)
             except RuntimeError:
                 pass  # Expected
         
@@ -232,15 +232,15 @@ def run_coverage_comprehensive():
         
         # Test list tasks with filters
         args = MockArgs(root=str(test_board), column="todo", agent=None)
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         args = MockArgs(root=str(test_board), column=None, agent="test-agent")
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         # Test list tasks with invalid column
         args = MockArgs(root=str(test_board), column="invalid", agent=None)
         try:
-            cmd_list_tasks(args)
+            cmd_list_issues(args)
         except RuntimeError:
             pass  # Expected
         
@@ -248,22 +248,22 @@ def run_coverage_comprehensive():
         empty_board = temp_dir / "empty_board_list"
         init_board(empty_board, "empty", "Empty", "test-agent", "test-agent")
         args = MockArgs(root=str(empty_board), column=None, agent=None)
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         # Test start/stop task (if task exists)
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent")
-            cmd_start_task(args)
-            cmd_stop_task(args)
+            cmd_start_issue(args)
+            cmd_stop_issue(args)
             
             # Test start/stop with nonexistent task
             args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent")
             try:
-                cmd_start_task(args)
+                cmd_start_issue(args)
             except RuntimeError:
                 pass  # Expected
             try:
-                cmd_stop_task(args)
+                cmd_stop_issue(args)
             except RuntimeError:
                 pass  # Expected
         
@@ -366,7 +366,7 @@ def run_coverage_comprehensive():
             due_date="2025-12-31",
             id="CUSTOM-123",
         )
-        cmd_new_task(args)
+        cmd_new_issue(args)
         
         # Test cmd_new_task with no assignees (should use default)
         args = MockArgs(
@@ -380,7 +380,7 @@ def run_coverage_comprehensive():
             due_date=None,
             id=None,
         )
-        cmd_new_task(args)
+        cmd_new_issue(args)
         
         # Test cmd_new_task fallback path (BoardClient fails)
         fallback_cli_board = temp_dir / "fallback_cli_board"
@@ -402,7 +402,7 @@ def run_coverage_comprehensive():
             id="FALLBACK-1",
         )
         try:
-            cmd_new_task(args)
+            cmd_new_issue(args)
         except RuntimeError:
             pass  # Expected - no agents
         
@@ -420,7 +420,7 @@ def run_coverage_comprehensive():
             id=None,
         )
         try:
-            cmd_new_task(args)
+            cmd_new_issue(args)
         except RuntimeError:
             pass  # Expected - invalid agent
         
@@ -437,7 +437,7 @@ def run_coverage_comprehensive():
             id=None,
         )
         try:
-            cmd_new_task(args)
+            cmd_new_issue(args)
         except RuntimeError:
             pass  # Expected - invalid column
         
@@ -455,29 +455,29 @@ def run_coverage_comprehensive():
             due_date="2025-12-31",
             id=None,
         )
-        cmd_new_task(args)
+        cmd_new_issue(args)
         
-        # Test cmd_list_tasks with various filters
+        # Test cmd_list_issues with various filters
         args = MockArgs(root=str(test_board), column="backlog", agent=None)
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         args = MockArgs(root=str(test_board), column=None, agent="test-agent")
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
         args = MockArgs(root=str(test_board), column="doing", agent="test-agent")
-        cmd_list_tasks(args)
+        cmd_list_issues(args)
         
-        # Test cmd_list_tasks with no matching tasks
+        # Test cmd_list_issues with no matching tasks
         args = MockArgs(root=str(test_board), column="blocked", agent=None)
-        cmd_list_tasks(args)  # Should print "No matching tasks."
+        cmd_list_issues(args)  # Should print "No matching tasks."
         
-        # Test cmd_list_tasks with task that's not a dict
+        # Test cmd_list_issues with task that's not a dict
         non_dict_board = temp_dir / "non_dict_board"
         init_board(non_dict_board, "non_dict", "Non Dict", "test-agent", "test-agent")
         non_dict_path = non_dict_board / "tasks" / "todo" / "NOT-DICT.yaml"
         non_dict_path.write_text("not a dict: [invalid")
         args = MockArgs(root=str(non_dict_board), column=None, agent=None)
-        cmd_list_tasks(args)  # Should skip non-dict files
+        cmd_list_issues(args)  # Should skip non-dict files
         
         # Test cmd_validate with various board states
         # Create a board with some issues
@@ -537,100 +537,100 @@ def run_coverage_comprehensive():
         except SystemExit:
             pass  # Expected - validation should fail
         
-        # Test cmd_start_task with column specified
+        # Test cmd_start_issue with column specified
         task_files = list((test_board / "tasks").rglob("*.yaml"))
         if task_files:
             task_id = task_files[0].stem
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="doing")
-            cmd_start_task(args)
+            cmd_start_issue(args)
             
-            # Test cmd_start_task moving task to different column
+            # Test cmd_start_issue moving task to different column
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
-            cmd_start_task(args)
+            cmd_start_issue(args)
             
-            # Test cmd_start_task with task already in target column (should not move)
+            # Test cmd_start_issue with task already in target column (should not move)
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
-            cmd_start_task(args)  # Task already in backlog, should just create link
+            cmd_start_issue(args)  # Task already in backlog, should just create link
             
-            # Test cmd_stop_task with column specified
+            # Test cmd_stop_issue with column specified
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="backlog")
-            cmd_stop_task(args)
+            cmd_stop_issue(args)
             
-            # Test cmd_stop_task without column (search all)
+            # Test cmd_stop_issue without column (search all)
             # First create a workspace link
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="todo")
-            cmd_start_task(args)
+            cmd_start_issue(args)
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column=None)
-            cmd_stop_task(args)
+            cmd_stop_issue(args)
             
-            # Test cmd_stop_task with no workspace link found (with column)
+            # Test cmd_stop_issue with no workspace link found (with column)
             args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent", column="todo")
-            cmd_stop_task(args)  # Should not error, just print message
+            cmd_stop_issue(args)  # Should not error, just print message
             
-            # Test cmd_stop_task with no workspace link found (without column)
+            # Test cmd_stop_issue with no workspace link found (without column)
             args = MockArgs(root=str(test_board), task_id="nonexistent", agent="test-agent", column=None)
-            cmd_stop_task(args)  # Should search all and find nothing
+            cmd_stop_issue(args)  # Should search all and find nothing
             
-            # Test cmd_stop_task with no workspace directory
+            # Test cmd_stop_issue with no workspace directory
             no_ws_board = temp_dir / "no_ws_board"
             init_board(no_ws_board, "no_ws", "No WS", "test-agent", "test-agent")
             args = MockArgs(root=str(no_ws_board), task_id="T-123", agent="test-agent", column=None)
-            cmd_stop_task(args)  # Should handle missing workspace gracefully
+            cmd_stop_issue(args)  # Should handle missing workspace gracefully
         
-        # Test cmd_start_task with invalid agent
+        # Test cmd_start_issue with invalid agent
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, agent="nonexistent", column="doing")
             try:
-                cmd_start_task(args)
+                cmd_start_issue(args)
             except RuntimeError:
                 pass  # Expected
         
-        # Test cmd_start_task with invalid column
+        # Test cmd_start_issue with invalid column
         if task_files:
             args = MockArgs(root=str(test_board), task_id=task_id, agent="test-agent", column="invalid")
             try:
-                cmd_start_task(args)
+                cmd_start_issue(args)
             except RuntimeError:
                 pass  # Expected
         
-        # Test cmd_move_task error path (nonexistent task)
+        # Test cmd_move_issue error path (nonexistent task)
         args = MockArgs(root=str(test_board), task_id="nonexistent", column="doing")
         try:
-            cmd_move_task(args)
+            cmd_move_issue(args)
         except RuntimeError:
             pass  # Expected
         
-        # Test cmd_move_task with no agents
+        # Test cmd_move_issue with no agents
         no_agents_board = temp_dir / "no_agents_board"
         init_board(no_agents_board, "no_agents", "No Agents", "test-agent", "test-agent")
         agents_file = no_agents_board / "agents" / "agents.yaml"
         agents_file.write_text("agents: []")
         args = MockArgs(root=str(no_agents_board), task_id="T-123", column="doing")
         try:
-            cmd_move_task(args)
+            cmd_move_issue(args)
         except RuntimeError:
             pass  # Expected - no agents
         
-        # Test cmd_assign_task error path (nonexistent task)
+        # Test cmd_assign_issue error path (nonexistent task)
         args = MockArgs(root=str(test_board), task_id="nonexistent", assignee=["test-agent"])
         try:
-            cmd_assign_task(args)
+            cmd_assign_issue(args)
         except RuntimeError:
             pass  # Expected
         
-        # Test cmd_assign_task with no agents
+        # Test cmd_assign_issue with no agents
         args = MockArgs(root=str(no_agents_board), task_id="T-123", assignee=["test-agent"])
         try:
-            cmd_assign_task(args)
+            cmd_assign_issue(args)
         except RuntimeError:
             pass  # Expected - no agents
         
-        # Test cmd_assign_task with multiple assignees
+        # Test cmd_assign_issue with multiple assignees
         task_files = list((test_board / "tasks").rglob("*.yaml"))
         if task_files:
             task_id = task_files[0].stem
             args = MockArgs(root=str(test_board), task_id=task_id, assignee=["test-agent", "test-agent"])
-            cmd_assign_task(args)
+            cmd_assign_issue(args)
         
         # Test load_board error path
         invalid_board_cli = temp_dir / "invalid_board_cli"
@@ -653,7 +653,7 @@ def run_coverage_comprehensive():
         
         # Test find_task_file error path
         try:
-            find_task_file(test_board, "nonexistent-task")
+            find_issue_file(test_board, "nonexistent-task")
         except RuntimeError:
             pass  # Expected
         
@@ -717,7 +717,7 @@ def run_coverage_comprehensive():
             load_board,
             load_agents,
             iter_tasks,
-            create_task,
+            create_issue,
             move_task,
             assign_task,
         )
@@ -744,7 +744,7 @@ def run_coverage_comprehensive():
         os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
         
         # Test create task with BoardClient
-        task_id = create_task(
+        task_id = create_issue(
             "UI Coverage Test",
             "Test description",
             "todo",
@@ -764,7 +764,7 @@ def run_coverage_comprehensive():
         
         os.environ["CREWKAN_BOARD_ROOT"] = str(empty_board_ui)
         try:
-            create_task(
+            create_issue(
                 "Fallback Test",
                 "Test",
                 "todo",
@@ -785,7 +785,7 @@ def run_coverage_comprehensive():
         agents_file.write_text("invalid: [")
         os.environ["CREWKAN_BOARD_ROOT"] = str(fallback_board)
         try:
-            fallback_task_id = create_task(
+            fallback_task_id = create_issue(
                 "Fallback Path Test",
                 "Test description",
                 "todo",
@@ -803,7 +803,7 @@ def run_coverage_comprehensive():
         os.environ["CREWKAN_BOARD_ROOT"] = str(test_board)
         
         # Test create task with empty title (should still work)
-        task_id2 = create_task(
+        task_id2 = create_issue(
             "",
             "Description only",
             "todo",
@@ -986,7 +986,7 @@ def run_coverage_comprehensive():
         client = BoardClient(test_board, "test-agent")
         
         # Create task
-        task_id = client.create_task(
+        task_id = client.create_issue(
             title="BoardClient Test",
             description="Test",
             column="todo",
@@ -998,7 +998,7 @@ def run_coverage_comprehensive():
         client.move_task(task_id, "doing")
         
         # Update field
-        client.update_task_field(task_id, "title", "Updated Title")
+        client.update_issue_field(task_id, "title", "Updated Title")
         
         # Add comment
         client.add_comment(task_id, "Test comment")
@@ -1007,7 +1007,7 @@ def run_coverage_comprehensive():
         client.reassign_task(task_id, "test-agent", keep_existing=True)
         
         # List tasks
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         
         # Test error paths
         from crewkan.board_core import BoardError
@@ -1017,7 +1017,7 @@ def run_coverage_comprehensive():
             pass  # Expected
         
         try:
-            client.update_task_field("nonexistent-task", "title", "Test")
+            client.update_issue_field("nonexistent-task", "title", "Test")
         except BoardError:
             pass  # Expected
         
@@ -1027,8 +1027,8 @@ def run_coverage_comprehensive():
             pass  # Expected
         
         # Test list with filters
-        client.list_my_tasks(column="todo")
-        client.list_my_tasks(column="doing", limit=5)
+        client.list_my_issues(column="todo")
+        client.list_my_issues(column="doing", limit=5)
         
         # Test reassign with to_superagent
         board_data = load_yaml(test_board / "board.yaml")
@@ -1046,15 +1046,15 @@ def run_coverage_comprehensive():
         
         # Test update_task_field with tags (string)
         if task_id:
-            client2.update_task_field(task_id, "tags", "tag1,tag2,tag3")
+            client2.update_issue_field(task_id, "tags", "tag1,tag2,tag3")
         
         # Test update_task_field with tags (list)
         if task_id:
-            client2.update_task_field(task_id, "tags", ["tag4", "tag5"])
+            client2.update_issue_field(task_id, "tags", ["tag4", "tag5"])
         
         # Test update_task_field error (invalid field)
         try:
-            client2.update_task_field(task_id, "invalid_field", "value")
+            client2.update_issue_field(task_id, "invalid_field", "value")
         except BoardError:
             pass
         
@@ -1084,13 +1084,13 @@ def run_coverage_comprehensive():
         
         # Test create_task with invalid column
         try:
-            client2.create_task("Test", column="invalid_column")
+            client2.create_issue("Test", column="invalid_column")
         except BoardError:
             pass
         
         # Test create_task with invalid assignee
         try:
-            client2.create_task("Test", assignees=["nonexistent-agent"])
+            client2.create_issue("Test", assignees=["nonexistent-agent"])
         except BoardError:
             pass
         
@@ -1122,7 +1122,7 @@ def run_coverage_comprehensive():
         # Test update_task_field with invalid tags type
         try:
             if task_id:
-                client3.update_task_field(task_id, "tags", 123)  # Invalid type
+                client3.update_issue_field(task_id, "tags", 123)  # Invalid type
         except BoardError:
             pass
         
@@ -1148,7 +1148,7 @@ def run_coverage_comprehensive():
         # Call all tools directly
         if tools:
             # Create a task first
-            create_tool = next((t for t in tools if t.name == "create_task"), None)
+            create_tool = next((t for t in tools if t.name == "create_issue"), None)
             if create_tool:
                 result = create_tool.invoke({
                     "title": "LangChain Test Task",
@@ -1159,7 +1159,7 @@ def run_coverage_comprehensive():
                 task_id = result.split()[-1] if "Created task" in result else None
             
             # List tasks
-            list_tool = next((t for t in tools if t.name == "list_my_tasks"), None)
+            list_tool = next((t for t in tools if t.name == "list_my_issues"), None)
             if list_tool:
                 list_tool.invoke({"column": None, "limit": 10})
             
@@ -1171,7 +1171,7 @@ def run_coverage_comprehensive():
             
             # Update field
             if task_id:
-                update_tool = next((t for t in tools if t.name == "update_task_field"), None)
+                update_tool = next((t for t in tools if t.name == "update_issue_field"), None)
                 if update_tool:
                     update_tool.invoke({"task_id": task_id, "field": "title", "value": "Updated"})
             
@@ -1274,7 +1274,7 @@ def run_coverage_comprehensive():
         # Create tasks
         from crewkan.board_core import BoardClient
         client = BoardClient(test_board_main, "test-agent")
-        client.create_task("Test Task 1", "Description", "todo", ["test-agent"])
+        client.create_issue("Test Task 1", "Description", "todo", ["test-agent"])
         
         # Set environment
         import os

@@ -152,7 +152,7 @@ def test_langchain_agent():
         # First get a task ID from the list
         from crewkan.board_core import BoardClient
         client = BoardClient(board_dir, "test-agent")
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         import json
         tasks = json.loads(tasks_json)
         if tasks:

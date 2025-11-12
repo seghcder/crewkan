@@ -42,7 +42,7 @@ class TestContext:
     def verify_task_exists(self, task_id: str, expected_column: Optional[str] = None) -> Dict[str, Any]:
         """Verify a task exists and return its data."""
         client = self.get_client(self.agents[0]["id"] if self.agents else "test-agent")
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         tasks = json.loads(tasks_json)
         
         task = next((t for t in tasks if t["id"] == task_id), None)
@@ -101,7 +101,7 @@ class BoardClientInterface(TestInterface):
     
     def create_task(self, ctx: TestContext, title: str, column: str, assignees: List[str] = None, tags: List[str] = None) -> str:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        task_id = client.create_task(
+        task_id = client.create_issue(
             title=title,
             description=f"Test task: {title}",
             column=column,
@@ -113,30 +113,30 @@ class BoardClientInterface(TestInterface):
     
     def assign_task(self, ctx: TestContext, task_id: str, assignee_id: str) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.reassign_task(task_id, assignee_id, keep_existing=True)
+        client.reassign_issue(task_id, assignee_id, keep_existing=True)
         return True
     
     def move_task(self, ctx: TestContext, task_id: str, new_column: str) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.move_task(task_id, new_column)
+        client.move_issue(task_id, new_column)
         return True
     
     def update_task_title(self, ctx: TestContext, task_id: str, new_title: str) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.update_task_field(task_id, "title", new_title)
+        client.update_issue_field(task_id, "title", new_title)
         return True
     
     def add_tags(self, ctx: TestContext, task_id: str, tags: List[str]) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
         # Get current task
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         tasks = json.loads(tasks_json)
         task = next((t for t in tasks if t["id"] == task_id), None)
         if task:
             current_tags = set(task.get("tags") or [])
             current_tags.update(tags)
             # Update via field (tags as comma-separated string)
-            client.update_task_field(task_id, "tags", ",".join(sorted(current_tags)))
+            client.update_issue_field(task_id, "tags", ",".join(sorted(current_tags)))
         return True
     
     def add_comment(self, ctx: TestContext, task_id: str, comment: str) -> bool:
@@ -181,7 +181,7 @@ class LangChainInterface(TestInterface):
         return tool.invoke(args)
     
     def create_task(self, ctx: TestContext, title: str, column: str, assignees: List[str] = None, tags: List[str] = None) -> str:
-        result = self._invoke_tool("create_task", {
+        result = self._invoke_tool("create_issue", {
             "title": title,
             "description": f"Test task: {title}",
             "column": column,
@@ -198,7 +198,7 @@ class LangChainInterface(TestInterface):
         raise ValueError(f"Could not extract task ID from: {result}")
     
     def assign_task(self, ctx: TestContext, task_id: str, assignee_id: str) -> bool:
-        self._invoke_tool("reassign_task", {
+        self._invoke_tool("reassign_issue", {
             "task_id": task_id,
             "new_assignee_id": assignee_id,
             "keep_existing": True,
@@ -206,14 +206,14 @@ class LangChainInterface(TestInterface):
         return True
     
     def move_task(self, ctx: TestContext, task_id: str, new_column: str) -> bool:
-        self._invoke_tool("move_task", {
+        self._invoke_tool("move_issue", {
             "task_id": task_id,
             "new_column": new_column,
         })
         return True
     
     def update_task_title(self, ctx: TestContext, task_id: str, new_title: str) -> bool:
-        self._invoke_tool("update_task_field", {
+        self._invoke_tool("update_issue_field", {
             "task_id": task_id,
             "field": "title",
             "value": new_title,
@@ -223,13 +223,13 @@ class LangChainInterface(TestInterface):
     def add_tags(self, ctx: TestContext, task_id: str, tags: List[str]) -> bool:
         # Get current tags and merge
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         tasks = json.loads(tasks_json)
         task = next((t for t in tasks if t["id"] == task_id), None)
         if task:
             current_tags = set(task.get("tags") or [])
             current_tags.update(tags)
-            self._invoke_tool("update_task_field", {
+            self._invoke_tool("update_issue_field", {
                 "task_id": task_id,
                 "field": "tags",
                 "value": ",".join(sorted(current_tags)),
@@ -270,7 +270,7 @@ class StreamlitInterface(TestInterface):
         # This is complex with Streamlit - we'll use a simpler approach
         # For now, create via BoardClient and verify in UI
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        task_id = client.create_task(
+        task_id = client.create_issue(
             title=title,
             description=f"Test task: {title}",
             column=column,
@@ -291,7 +291,7 @@ class StreamlitInterface(TestInterface):
         # For Streamlit, we'll use BoardClient for now
         # Full UI automation would require more complex selectors
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.reassign_task(task_id, assignee_id, keep_existing=True)
+        client.reassign_issue(task_id, assignee_id, keep_existing=True)
         
         # Verify in UI
         self.page.reload()
@@ -300,27 +300,27 @@ class StreamlitInterface(TestInterface):
     
     def move_task(self, ctx: TestContext, task_id: str, new_column: str) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.move_task(task_id, new_column)
+        client.move_issue(task_id, new_column)
         self.page.reload()
         self.page.wait_for_timeout(2000)
         return True
     
     def update_task_title(self, ctx: TestContext, task_id: str, new_title: str) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        client.update_task_field(task_id, "title", new_title)
+        client.update_issue_field(task_id, "title", new_title)
         self.page.reload()
         self.page.wait_for_timeout(2000)
         return True
     
     def add_tags(self, ctx: TestContext, task_id: str, tags: List[str]) -> bool:
         client = ctx.get_client(ctx.agents[0]["id"] if ctx.agents else "test-agent")
-        tasks_json = client.list_my_tasks()
+        tasks_json = client.list_my_issues()
         tasks = json.loads(tasks_json)
         task = next((t for t in tasks if t["id"] == task_id), None)
         if task:
             current_tags = set(task.get("tags") or [])
             current_tags.update(tags)
-            client.update_task_field(task_id, "tags", ",".join(sorted(current_tags)))
+            client.update_issue_field(task_id, "tags", ",".join(sorted(current_tags)))
         self.page.reload()
         self.page.wait_for_timeout(2000)
         return True

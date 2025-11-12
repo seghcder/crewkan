@@ -55,9 +55,9 @@ def test_main_function_coverage():
         # Create some test tasks
         from crewkan.board_core import BoardClient
         client = BoardClient(board_dir, "test-agent")
-        client.create_task("Task 1", "Description 1", "todo", ["test-agent"])
-        client.create_task("Task 2", "Description 2", "doing", ["test-agent"])
-        client.create_task("Task 3", "Description 3", "done", ["test-agent"])
+        client.create_issue("Task 1", "Description 1", "todo", ["test-agent"])
+        client.create_issue("Task 2", "Description 2", "doing", ["test-agent"])
+        client.create_issue("Task 3", "Description 3", "done", ["test-agent"])
         
         # Set environment variable
         os.environ["CREWKAN_BOARD_ROOT"] = str(board_dir)

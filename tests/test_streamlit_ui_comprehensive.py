@@ -224,7 +224,7 @@ def test_filesystem_change_detection():
         # Simulate backend agent creating a task
         from crewkan.board_core import BoardClient
         client = BoardClient(board_dir, "nuni")
-        task_id = client.create_task(
+        task_id = client.create_issue(
             title="Backend Task",
             description="Created by backend agent",
             column="todo",

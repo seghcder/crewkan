@@ -192,7 +192,7 @@ def test_form_submission_flow(streamlit_server, page, test_board):
     
     # Count tasks before submission
     client = BoardClient(test_board, "nuni")
-    tasks_before = json.loads(client.list_my_tasks())
+    tasks_before = json.loads(client.list_my_issues())
     task_count_before = len(tasks_before)
     test_logger.info(f"Tasks before submission: {task_count_before}")
     
@@ -215,7 +215,7 @@ def test_form_submission_flow(streamlit_server, page, test_board):
     
     # Verify task was created in filesystem
     test_logger.info("Checking filesystem for new task...")
-    tasks_after = json.loads(client.list_my_tasks())
+    tasks_after = json.loads(client.list_my_issues())
     task_count_after = len(tasks_after)
     test_logger.info(f"Tasks after submission: {task_count_after}")
     
