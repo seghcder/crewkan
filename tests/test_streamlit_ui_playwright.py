@@ -187,7 +187,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
         from crewkan.board_core import BoardClient
         import json
         client = BoardClient(test_board, "nuni")
-        tasks_before = json.loads(client.list_my_tasks())
+        tasks_before = json.loads(client.list_my_issues())
         task_count_before = len(tasks_before)
         print(f"Tasks before submission: {task_count_before}")
         
@@ -235,7 +235,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
                 print(f"📸 Screenshot saved: {screenshot_path}")
                 
                 # Verify task was created in filesystem
-                tasks_after = json.loads(client.list_my_tasks())
+                tasks_after = json.loads(client.list_my_issues())
                 task_count_after = len(tasks_after)
                 print(f"Tasks after submission: {task_count_after}")
                 
@@ -300,7 +300,7 @@ def test_filesystem_change_detection(streamlit_server, page, test_board):
     # Create a task via backend (simulating agent action)
     from crewkan.board_core import BoardClient
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Backend Task from Playwright",
         description="Created by backend agent",
         column="todo",

@@ -55,7 +55,7 @@ def test_event_system():
         
         # Create a task
         client = BoardClient(board_dir, "ceo")
-        task_id = client.create_task(
+        task_id = client.create_issue(
             "Test Task",
             "Test description",
             "todo",

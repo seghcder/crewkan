@@ -99,7 +99,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
     
     # Create task via BoardClient (simulating UI form submission)
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="UI Test Task",
         description="Created via UI test",
         column="todo",
@@ -114,7 +114,7 @@ def test_create_task_via_ui(streamlit_server, page, test_board):
     assert "UI Test Task" in page_text, "Task should appear in UI"
     
     # Verify in backend
-    tasks_json = client.list_my_tasks()
+    tasks_json = client.list_my_issues()
     tasks = json.loads(tasks_json)
     task = next((t for t in tasks if t["id"] == task_id), None)
     assert task is not None, "Task should exist in backend"
@@ -129,7 +129,7 @@ def test_assign_task_via_ui(streamlit_server, page, test_board):
     """Test assigning a task and verify assignment."""
     # Create task first
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Task to Assign",
         description="Test assignment",
         column="todo",
@@ -139,7 +139,7 @@ def test_assign_task_via_ui(streamlit_server, page, test_board):
     client.reassign_task(task_id, "tau", keep_existing=True)
     
     # Verify in backend
-    tasks_json = client.list_my_tasks()
+    tasks_json = client.list_my_issues()
     tasks = json.loads(tasks_json)
     task = next((t for t in tasks if t["id"] == task_id), None)
     assert task is not None
@@ -158,17 +158,17 @@ def test_assign_task_via_ui(streamlit_server, page, test_board):
 def test_rename_task_via_ui(streamlit_server, page, test_board):
     """Test renaming a task."""
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Original Title",
         description="Test rename",
         column="todo",
     )
     
     # Rename via BoardClient
-    client.update_task_field(task_id, "title", "Renamed Title")
+    client.update_issue_field(task_id, "title", "Renamed Title")
     
     # Verify in backend
-    tasks_json = client.list_my_tasks()
+    tasks_json = client.list_my_issues()
     tasks = json.loads(tasks_json)
     task = next((t for t in tasks if t["id"] == task_id), None)
     assert task is not None
@@ -187,7 +187,7 @@ def test_rename_task_via_ui(streamlit_server, page, test_board):
 def test_update_tags_via_ui(streamlit_server, page, test_board):
     """Test updating task tags."""
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Task with Tags",
         description="Test tags",
         column="todo",
@@ -195,10 +195,10 @@ def test_update_tags_via_ui(streamlit_server, page, test_board):
     )
     
     # Update tags via BoardClient
-    client.update_task_field(task_id, "tags", "original,updated,test")
+    client.update_issue_field(task_id, "tags", "original,updated,test")
     
     # Verify in backend
-    tasks_json = client.list_my_tasks()
+    tasks_json = client.list_my_issues()
     tasks = json.loads(tasks_json)
     task = next((t for t in tasks if t["id"] == task_id), None)
     assert task is not None
@@ -211,7 +211,7 @@ def test_update_tags_via_ui(streamlit_server, page, test_board):
 def test_add_comment_via_ui(streamlit_server, page, test_board):
     """Test adding a comment to a task."""
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Task for Comment",
         description="Test comment",
         column="todo",
@@ -243,7 +243,7 @@ def test_add_comment_via_ui(streamlit_server, page, test_board):
 def test_move_task_via_ui(streamlit_server, page, test_board):
     """Test moving a task between columns."""
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Task to Move",
         description="Test move",
         column="todo",
@@ -253,7 +253,7 @@ def test_move_task_via_ui(streamlit_server, page, test_board):
     client.move_task(task_id, "doing")
     
     # Verify in backend
-    tasks_json = client.list_my_tasks(column="doing")
+    tasks_json = client.list_my_issues(column="doing")
     tasks = json.loads(tasks_json)
     task = next((t for t in tasks if t["id"] == task_id), None)
     assert task is not None, "Task should be in doing column"
@@ -277,7 +277,7 @@ def test_filesystem_change_detection(streamlit_server, page, test_board):
     
     # Create task via backend
     client = BoardClient(test_board, "nuni")
-    task_id = client.create_task(
+    task_id = client.create_issue(
         title="Backend Created Task",
         description="Created by backend",
         column="todo",

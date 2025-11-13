@@ -36,7 +36,7 @@ class AgentSimulator:
         actions = 0
 
         # List my tasks
-        tasks_json = self.client.list_my_tasks(limit=50)
+        tasks_json = self.client.list_my_issues(limit=50)
         import json
         tasks = json.loads(tasks_json)
 
@@ -125,7 +125,7 @@ class AgentSimulator:
         priority = random.choice(priorities)
 
         try:
-            self.client.create_task(
+            self.client.create_issue(
                 title=title,
                 description=f"Task created by {self.agent_id}",
                 column=column,
@@ -180,7 +180,7 @@ class CEOAgentSimulator(AgentSimulator):
         assignee = random.choice(agents)
 
         try:
-            self.client.create_task(
+            self.client.create_issue(
                 title=title,
                 description=f"Task assigned by CEO to {assignee}",
                 column="todo",
@@ -314,7 +314,7 @@ def run_simulation(
             # Count all tasks across all boards
             total = 0
             for _, br in boards:
-                for _ in BoardClient(br, "ceo-agent").iter_tasks():
+                for _ in BoardClient(br, "ceo-agent").iter_issues():
                     total += 1
             tasks_created = total
             if tasks_created >= num_tasks:
@@ -371,7 +371,7 @@ def run_simulation(
         # Call each tool to exercise code
         if tools:
             # Test list_my_tasks tool
-            list_tool = next((t for t in tools if t.name == "list_my_tasks"), None)
+            list_tool = next((t for t in tools if t.name == "list_my_issues"), None)
             if list_tool:
                 try:
                     list_tool.invoke({"column": None, "limit": 10})
