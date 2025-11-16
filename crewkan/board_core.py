@@ -474,7 +474,7 @@ class BoardClient:
                     from crewkan.board_events import create_assignment_event
                     create_assignment_event(
                         board_root=self.root,
-                        task_id=issue_id,  # Events still use task_id for now
+                        issue_id=issue_id,
                         assigned_to=assignee,
                         assigned_by=self.agent_id,
                     )
