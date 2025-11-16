@@ -49,7 +49,7 @@ class AgentState(TypedDict):
     board_root: str
     last_issue_gen_time: float
     should_exit: bool
-    step_count: int
+    step_count: Annotated[int, add]  # Use add reducer for concurrent updates
 
 
 # ============================================================================
