@@ -286,15 +286,22 @@ def create_team_graph(board_root: str):
 # Main Execution
 # ============================================================================
 
-async def main():
-    """Run the CrewKan team board."""
+async def main(max_duration_seconds: int = None):
+    """Run the CrewKan team board.
+    
+    Args:
+        max_duration_seconds: Maximum duration to run in seconds (None for unlimited)
+    """
     
     board_root = Path("boards/crewkanteam")
     
     print("=" * 60)
     print("Starting CrewKan Team Board")
     print(f"Board: {board_root}")
-    print("Running for up to 1000 steps")
+    if max_duration_seconds:
+        print(f"Running for up to {max_duration_seconds} seconds")
+    else:
+        print("Running for up to 1000 steps")
     print("=" * 60)
     
     graph = create_team_graph(str(board_root))
@@ -317,6 +324,7 @@ async def main():
         "recursion_limit": 10000
     }
     
+    start_time = time.time()
     iteration = 0
     async for event in graph.astream(initial_state, config, recursion_limit=1000):
         iteration += 1
@@ -330,9 +338,16 @@ async def main():
                 print(f"\n[{node_name.upper()}] {content}")
         
         step_count = state.get("step_count", 0) if state else 0
+        elapsed = time.time() - start_time
+        
         if iteration % 10 == 0:
             counts = count_issues_by_status(str(board_root))
-            print(f"\n📊 Step {step_count}: {counts}")
+            print(f"\n📊 Step {step_count}, Elapsed: {elapsed:.1f}s: {counts}")
+        
+        # Check time limit
+        if max_duration_seconds and elapsed >= max_duration_seconds:
+            print(f"\n⏱️  Time limit reached ({max_duration_seconds}s)")
+            break
         
         if step_count >= 1000:
             break
@@ -346,5 +361,13 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    max_duration = None
+    if len(sys.argv) > 1:
+        try:
+            max_duration = int(sys.argv[1])
+        except ValueError:
+            print(f"Usage: {sys.argv[0]} [max_duration_seconds]")
+            sys.exit(1)
+    asyncio.run(main(max_duration_seconds=max_duration))
 
