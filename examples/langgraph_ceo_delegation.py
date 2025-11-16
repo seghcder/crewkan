@@ -21,6 +21,7 @@ from typing import Annotated, TypedDict
 import asyncio
 import json
 import time
+import logging
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -37,6 +38,11 @@ from langchain_openai import AzureChatOpenAI
 from crewkan.board_core import BoardClient
 from crewkan.board_init import init_board
 from crewkan.board_langchain_tools import make_board_tools
+from crewkan.agent_framework import SupertoolExecutor, get_supertool_descriptions
+from crewkan.agent_framework.supertools import *  # Import all supertools to register them
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -121,6 +127,10 @@ def create_ceo_node(board_root: str):
     )
     client = BoardClient(board_root, "ceo")
     
+    # Initialize supertool executor for CEO
+    supertool_executor = SupertoolExecutor(board_root, "ceo")
+    available_supertools = supertool_executor.list_available_tools()
+    
     # Get all agents dynamically (not hardcoded)
     all_agents = client.list_agents()
     agent_ids = [a["id"] for a in all_agents if a.get("status") != "inactive"]
@@ -147,6 +157,31 @@ def create_ceo_node(board_root: str):
             # Get full issue details for GenAI comment generation
             issue_details = client.get_issue_details(issue_id)
             
+            # Check if we should use a supertool for this issue
+            issue_type = issue_details.get("issue_type", "task")
+            issue_title = issue_details.get("title", "")
+            issue_desc = issue_details.get("description", "")
+            
+            # Determine if supertool should be used based on issue type/description
+            used_supertool = False
+            supertool_result = None
+            
+            # Use Cline for coding-related tasks
+            if issue_type in ["bug", "feature"] or any(keyword in issue_title.lower() or keyword in issue_desc.lower() 
+                                                      for keyword in ["code", "implement", "fix", "refactor", "debug"]):
+                if "cline" in available_supertools:
+                    try:
+                        supertool_result = await supertool_executor.execute(
+                            tool_id="cline",
+                            issue_id=issue_id,
+                            additional_context={
+                                "prompt": f"Complete this task: {issue_title}\n\n{issue_desc}",
+                            }
+                        )
+                        used_supertool = True
+                    except Exception as e:
+                        logger.warning(f"Error using Cline supertool: {e}")
+            
             # Generate completion comment using GenAI
             comments_text = "\n".join([
                 f"- {h.get('by', 'unknown')}: {h.get('details', '')}"
@@ -160,6 +195,7 @@ Issue: {issue_details.get('title', '')}
 Description: {issue_details.get('description', '')}
 Previous comments:
 {comments_text if comments_text else 'None'}
+{f"Supertool used: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}
 
 Generate a brief completion comment (1-2 sentences):"""
             
@@ -171,15 +207,19 @@ Generate a brief completion comment (1-2 sentences):"""
                 completion_comment = "Issue completed successfully."
                 client.add_comment(issue_id, completion_comment)
             
-            # Simulate work (random 2-5 seconds)
-            work_time = random.uniform(2.0, 5.0)
-            await asyncio.sleep(work_time)
+            # Simulate work (random 2-5 seconds, or use supertool execution time)
+            if used_supertool and supertool_result and supertool_result.execution_time:
+                work_time = supertool_result.execution_time
+            else:
+                work_time = random.uniform(2.0, 5.0)
+            await asyncio.sleep(min(work_time, 5.0))  # Cap at 5 seconds for simulation
             # Move to done
             client.move_issue(issue_id, "done", notify_on_completion=True)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"CEO: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done"
+                    "content": f"CEO: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done" + 
+                              (f" (used {list(available_supertools.keys())[0]} supertool)" if used_supertool else "")
                 }]
             }
         
@@ -399,6 +439,10 @@ def create_worker_node(board_root: str, worker_id: str):
     
     client = BoardClient(board_root, worker_id)
     
+    # Initialize supertool executor for worker
+    supertool_executor = SupertoolExecutor(board_root, worker_id)
+    available_supertools = supertool_executor.list_available_tools()
+    
     # Get all agents for reassignment
     all_agents = client.list_agents()
     agent_ids = [a["id"] for a in all_agents if a.get("status") != "inactive"]
@@ -420,6 +464,31 @@ def create_worker_node(board_root: str, worker_id: str):
             # Get full issue details for GenAI comment generation
             issue_details = client.get_issue_details(issue_id)
             
+            # Check if we should use a supertool for this issue
+            issue_type = issue_details.get("issue_type", "task")
+            issue_title = issue_details.get("title", "")
+            issue_desc = issue_details.get("description", "")
+            
+            # Determine if supertool should be used based on issue type/description
+            used_supertool = False
+            supertool_result = None
+            
+            # Use Cline for coding-related tasks
+            if issue_type in ["bug", "feature"] or any(keyword in issue_title.lower() or keyword in issue_desc.lower() 
+                                                      for keyword in ["code", "implement", "fix", "refactor", "debug"]):
+                if "cline" in available_supertools:
+                    try:
+                        supertool_result = await supertool_executor.execute(
+                            tool_id="cline",
+                            issue_id=issue_id,
+                            additional_context={
+                                "prompt": f"Complete this task: {issue_title}\n\n{issue_desc}",
+                            }
+                        )
+                        used_supertool = True
+                    except Exception as e:
+                        logger.warning(f"Error using Cline supertool: {e}")
+            
             # Generate completion comment using GenAI
             comments_text = "\n".join([
                 f"- {h.get('by', 'unknown')}: {h.get('details', '')}"
@@ -436,6 +505,7 @@ Issue: {issue_details.get('title', '')}
 Description: {issue_details.get('description', '')}
 Previous comments:
 {comments_text if comments_text else 'None'}
+{f"Supertool used: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}
 
 Generate a brief completion comment (1-2 sentences):"""
                     
@@ -448,15 +518,19 @@ Generate a brief completion comment (1-2 sentences):"""
             
             client.add_comment(issue_id, completion_comment)
             
-            # Simulate work (random 2-5 seconds)
-            work_time = random.uniform(2.0, 5.0)
-            await asyncio.sleep(work_time)
+            # Simulate work (random 2-5 seconds, or use supertool execution time)
+            if used_supertool and supertool_result and supertool_result.execution_time:
+                work_time = supertool_result.execution_time
+            else:
+                work_time = random.uniform(2.0, 5.0)
+            await asyncio.sleep(min(work_time, 5.0))  # Cap at 5 seconds for simulation
             # Move to done
             client.move_issue(issue_id, "done", notify_on_completion=True)
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"{worker_id.upper()}: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done"
+                    "content": f"{worker_id.upper()}: Completed issue {issue_id} ({issue.get('title', '')}) and moved to done" +
+                              (f" (used {list(available_supertools.keys())[0]} supertool)" if used_supertool else "")
                 }]
             }
         
