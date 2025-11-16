@@ -3,18 +3,37 @@ Example supertool implementations.
 """
 
 # Import supertools to register them
-from crewkan.agent_framework.supertools.coding import (
-    ClineSupertool,
-    ContinueSupertool,
-)
-from crewkan.agent_framework.supertools.research import (
-    DeepResearchSupertool,
-    WebSearchSupertool,
-)
-from crewkan.agent_framework.supertools.automation import (
-    BrowserAutomationSupertool,
-    TaskLineSupertool,
-)
+try:
+    from crewkan.agent_framework.supertools.coding import (
+        ClineSupertool,
+        ContinueSupertool,
+    )
+except ImportError:
+    pass
+
+try:
+    from crewkan.agent_framework.supertools.research import (
+        DeepResearchSupertool,
+        WebSearchSupertool,
+    )
+except ImportError:
+    pass
+
+try:
+    from crewkan.agent_framework.supertools.automation import (
+        BrowserAutomationSupertool,
+        TaskLineSupertool,
+    )
+except ImportError:
+    pass
+
+try:
+    from crewkan.agent_framework.supertools.mcp import (
+        MCPServerSupertool,
+        MCPServerRegistry,
+    )
+except ImportError:
+    pass
 
 __all__ = [
     "ClineSupertool",
@@ -23,5 +42,7 @@ __all__ = [
     "WebSearchSupertool",
     "BrowserAutomationSupertool",
     "TaskLineSupertool",
+    "MCPServerSupertool",
+    "MCPServerRegistry",
 ]
 
