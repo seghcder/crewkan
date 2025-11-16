@@ -20,7 +20,7 @@ except ImportError:
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from operator import add
+from operator import add, max as max_op
 from langchain_openai import AzureChatOpenAI
 from typing import Annotated, TypedDict
 import json
@@ -49,7 +49,7 @@ class AgentState(TypedDict):
     board_root: str
     last_issue_gen_time: float
     should_exit: bool
-    step_count: Annotated[int, add]  # Use add reducer for concurrent updates
+    step_count: Annotated[int, max_op]  # Use max reducer to track highest step
 
 
 # ============================================================================
