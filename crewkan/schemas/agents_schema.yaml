@@ -10,4 +10,10 @@ agent_schema:
   status: enum('active', 'inactive', 'suspended', required=False)
   skills: list(str(), required=False)
   metadata: map(required=False)
+  supertools: map(required=False)
+    allowed: list(str(), required=False)  # List of supertool IDs the agent can use
+    constraints: map(required=False)  # Execution constraints
+      max_execution_time: int(required=False)  # Maximum execution time in seconds
+      resource_limits: map(required=False)  # Resource limits (memory, CPU, etc.)
+      allowed_domains: list(str(), required=False)  # Allowed domains for web-based tools
 
