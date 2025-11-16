@@ -20,6 +20,10 @@ from crewkan.agent_framework.registry import (
 from crewkan.agent_framework.executor import SupertoolExecutor
 from crewkan.agent_framework.workspace import AgentWorkspace
 from crewkan.agent_framework.credentials import CredentialManager
+from crewkan.agent_framework.langchain_tools import (
+    make_supertool_tools,
+    get_supertool_descriptions,
+)
 
 __all__ = [
     "Supertool",
@@ -32,5 +36,7 @@ __all__ = [
     "SupertoolExecutor",
     "AgentWorkspace",
     "CredentialManager",
+    "make_supertool_tools",
+    "get_supertool_descriptions",
 ]
 
