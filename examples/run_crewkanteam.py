@@ -12,8 +12,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Load environment variables from .env if it exists
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
