@@ -170,10 +170,12 @@ def create_agent_node(board_root: str, agent_id: str):
                         break
             
             # Add restart comment if this is a resume after restart
-            restart_comment = None
-            if was_in_doing and comments:
+            # (issue is already in "doing", which suggests we're resuming after a restart)
+            if was_in_doing:
                 # This might be a restart - add a comment
-                restart_comment = f"🔄 Resuming work on this issue. Reviewing {len(comments)} previous comment(s) to understand context."
+                restart_comment = f"🔄 Resuming work on this issue."
+                if comments:
+                    restart_comment += f" Reviewing {len(comments)} previous comment(s) to understand context."
                 if last_agent and last_agent != agent_id:
                     restart_comment += f" Last worked on by {last_agent}."
                 client.add_comment(issue_id, restart_comment)
