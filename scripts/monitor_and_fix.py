@@ -173,9 +173,33 @@ def investigate_agent_status(board_root: str) -> dict:
             except:
                 pass
     
+    # Check individual agent status using check_agent_status script
+    agent_statuses = {}
+    try:
+        result = subprocess.run(
+            [sys.executable, "scripts/check_agent_status.py", "--board-root", board_root],
+            cwd=Path(__file__).parent.parent,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            # Parse agent status from output
+            lines = result.stdout.split('\n')
+            current_agent = None
+            for line in lines:
+                if line.startswith("Agent: "):
+                    current_agent = line.split("Agent: ")[1].strip()
+                    agent_statuses[current_agent] = {"stuck": False}
+                elif "AGENT IS STUCK" in line and current_agent:
+                    agent_statuses[current_agent]["stuck"] = True
+    except Exception as e:
+        logger.warning(f"Error checking agent status: {e}")
+    
     return {
         "doing_count": len(doing_issues),
         "stuck_issues": stuck_issues,
+        "agent_statuses": agent_statuses,
     }
 
 
@@ -273,6 +297,16 @@ def main():
                 agent_status = investigate_agent_status(board_root)
                 
                 print(f"  Issues in 'doing': {agent_status['doing_count']}")
+                
+                # Check individual agent status
+                if agent_status.get('agent_statuses'):
+                    print("  Individual agent status:")
+                    for agent_id, status in agent_status['agent_statuses'].items():
+                        if status.get('stuck'):
+                            print(f"    🔴 {agent_id}: STUCK")
+                        else:
+                            print(f"    ✅ {agent_id}: Active")
+                
                 if agent_status['stuck_issues']:
                     print(f"  ⚠️  Found {len(agent_status['stuck_issues'])} stuck issues:")
                     for stuck in agent_status['stuck_issues']:

@@ -227,6 +227,37 @@ def create_agent_node(board_root: str, agent_id: str):
                     except Exception as e:
                         logger.warning(f"Error using Cline supertool: {e}")
             
+            # For long-running tasks, add periodic progress updates
+            work_start_time = time.time()
+            progress_update_interval = 180  # Update every 3 minutes
+            
+            # Simulate work with periodic progress updates
+            if used_supertool and supertool_result and supertool_result.execution_time:
+                work_time = min(supertool_result.execution_time, 2.0)
+            else:
+                work_time = random.uniform(0.5, 1.5)
+            
+            # If work will take longer than progress interval, add periodic updates
+            if work_time > progress_update_interval / 60:  # If work > 3 minutes
+                elapsed = 0
+                update_count = 0
+                while elapsed < work_time:
+                    sleep_chunk = min(progress_update_interval / 60, work_time - elapsed)
+                    await asyncio.sleep(sleep_chunk)
+                    elapsed += sleep_chunk
+                    update_count += 1
+                    
+                    # Add progress comment every 3 minutes
+                    if update_count % (progress_update_interval / 60 / sleep_chunk) == 0:
+                        progress_comment = f"⏳ Still working on this task... ({int(elapsed * 60)} seconds elapsed)"
+                        if used_supertool:
+                            progress_comment += f" Using supertool: {supertool_result.tool_id if supertool_result else 'unknown'}"
+                        client.add_comment(issue_id, progress_comment)
+                        logger.info(f"{agent_id}: Added progress update to issue {issue_id} ({int(elapsed * 60)}s elapsed)")
+                        client.activity_logger.info(f"AGENT:{agent_id} | ACTION:progress_update | ISSUE:{issue_id} | ELAPSED:{int(elapsed * 60)}s")
+            else:
+                await asyncio.sleep(work_time)
+            
             # Generate completion comment
             comments_text = "\n".join([
                 f"- {h.get('by', 'unknown')}: {h.get('details', '')}"
@@ -252,13 +283,6 @@ Generate a brief completion comment (1-2 sentences):"""
                 completion_comment = f"Completed using {'supertool' if used_supertool else 'standard process'}."
             
             client.add_comment(issue_id, completion_comment)
-            
-            # Simulate work
-            if used_supertool and supertool_result and supertool_result.execution_time:
-                work_time = min(supertool_result.execution_time, 2.0)
-            else:
-                work_time = random.uniform(0.5, 1.5)
-            await asyncio.sleep(work_time)
             
             # Move to done
             client.move_issue(issue_id, "done", notify_on_completion=True)
