@@ -267,10 +267,10 @@ def main():
     
     # Take action if needed
     if suggestions:
-                print("\n🔧 Taking automatic remediation actions...")
-                client = BoardClient(board_root, "sean")
-                
-                for suggestion in suggestions:
+        print("\n🔧 Taking automatic remediation actions...")
+        client = BoardClient(board_root, "sean")
+        
+        for suggestion in suggestions:
                     if suggestion["action"] == "assign_work":
                         agents = suggestion.get("agents", [])
                         issues = suggestion.get("available_issues", [])

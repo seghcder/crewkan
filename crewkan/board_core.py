@@ -209,6 +209,10 @@ class BoardClient:
         if old_column == new_column:
             return f"Issue {issue_id} is already in column '{new_column}'."
 
+        # Log activity
+        logger.info(f"Moving issue {issue_id} to column {new_column} (agent: {self.agent_id})")
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:move_issue | ISSUE:{issue_id} | FROM:{old_column} | TO:{new_column}")
+
         issue["column"] = new_column
         issue["status"] = new_column
         issue["updated_at"] = now_iso()
