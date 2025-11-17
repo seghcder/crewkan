@@ -266,7 +266,7 @@ def main():
         logger.warning(f"Failed to write status summary: {e}")
     
     # Take action if needed
-            if suggestions:
+    if suggestions:
                 print("\n🔧 Taking automatic remediation actions...")
                 client = BoardClient(board_root, "sean")
                 

@@ -192,8 +192,6 @@ class BoardClient:
         return json.dumps(results, indent=2)
 
     def move_issue(self, issue_id: str, new_column: str, notify_on_completion: bool = True) -> str:
-        logger.info(f"Moving issue {issue_id} to column {new_column} (agent: {self.agent_id})")
-        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:move_issue | ISSUE:{issue_id} | FROM:{issue.get('column', 'unknown')} | TO:{new_column}")
         """
         Move an issue to another column.
         
