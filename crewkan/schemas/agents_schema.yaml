@@ -11,9 +11,4 @@ agent_schema:
   skills: list(str(), required=False)
   metadata: map(required=False)
   supertools: map(required=False)
-    allowed: list(str(), required=False)
-    constraints: map(required=False)
-      max_execution_time: int(required=False)
-      resource_limits: map(required=False)
-      allowed_domains: list(str(), required=False)
 
