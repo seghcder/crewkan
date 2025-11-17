@@ -11,6 +11,38 @@ from crewkan.utils import load_yaml, save_yaml, now_iso, generate_task_id, gener
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Set up board activity logger (separate file)
+_board_activity_logger = None
+
+def get_board_activity_logger(board_root: Path) -> logging.Logger:
+    """Get or create a board-specific activity logger."""
+    global _board_activity_logger
+    
+    if _board_activity_logger is None:
+        _board_activity_logger = logging.getLogger(f"crewkan.board_activity")
+        _board_activity_logger.setLevel(logging.INFO)
+        
+        # Don't propagate to root logger
+        _board_activity_logger.propagate = False
+        
+        # Create file handler for board activity
+        log_file = Path(board_root) / "board_activity.log"
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        
+        # Format: timestamp | agent | action | details
+        formatter = logging.Formatter(
+            '%(asctime)s | %(name)s | %(levelname)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        
+        # Add handler if not already added
+        if not _board_activity_logger.handlers:
+            _board_activity_logger.addHandler(file_handler)
+    
+    return _board_activity_logger
+
 
 class BoardError(Exception):
     pass
@@ -27,6 +59,7 @@ class BoardClient:
     def __init__(self, root: str | Path, agent_id: str) -> None:
         self.root = Path(root).resolve()
         self.agent_id = agent_id
+        self.activity_logger = get_board_activity_logger(self.root)
 
         try:
             self.board = load_yaml(self.root / "board.yaml") or {}
@@ -160,6 +193,7 @@ class BoardClient:
 
     def move_issue(self, issue_id: str, new_column: str, notify_on_completion: bool = True) -> str:
         logger.info(f"Moving issue {issue_id} to column {new_column} (agent: {self.agent_id})")
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:move_issue | ISSUE:{issue_id} | FROM:{issue.get('column', 'unknown')} | TO:{new_column}")
         """
         Move an issue to another column.
         
@@ -232,6 +266,7 @@ class BoardClient:
 
     def update_issue_field(self, issue_id: str, field: str, value: str) -> str:
         logger.info(f"Updating issue {issue_id} field {field} (agent: {self.agent_id})")
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:update_field | ISSUE:{issue_id} | FIELD:{field}")
         """
         Update a simple top-level field (title, description, issue_type, priority, due_date, tags).
         For tags, value should be comma-separated string.
@@ -273,6 +308,8 @@ class BoardClient:
         import uuid
         from crewkan.utils import now_iso
         
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:add_comment | ISSUE:{issue_id} | COMMENT_LEN:{len(comment)}")
+        
         path, issue = self.find_issue(issue_id)
         comment_id = f"C-{uuid.uuid4().hex[:8]}"
         issue["updated_at"] = now_iso()
@@ -312,6 +349,7 @@ class BoardClient:
         keep_existing: bool = False,
     ) -> str:
         logger.info(f"Reassigning issue {issue_id} to {new_assignee_id or 'superagent'} (agent: {self.agent_id})")
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:reassign_issue | ISSUE:{issue_id} | TO:{new_assignee_id or 'superagent'}")
         """
         Reassign an issue. If to_superagent is True, ignore new_assignee_id and
         reassign to the board's default superagent.
@@ -466,6 +504,7 @@ class BoardClient:
         path = col_dir / f"{issue_id}.yaml"
         save_yaml(path, issue)
         logger.debug(f"Created issue {issue_id} at {path}")
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:create_issue | ISSUE:{issue_id} | TITLE:{title[:50]} | COLUMN:{column} | ASSIGNEES:{','.join(assignees or [])}")
         
         # Create assignment events for assigned agents (except creator)
         for assignee in assignees:

@@ -6,14 +6,19 @@ Monitor the CrewKan team board status and detect bottlenecks.
 import sys
 import time
 import json
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
+import logging
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from crewkan.board_core import BoardClient
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 def get_board_status(board_root: str) -> dict:
@@ -249,10 +254,18 @@ def main():
                 if bottleneck.get("issues"):
                     suggestions = suggest_remediation(bottleneck, status)
             
-            # Print status
-            print_status(status, bottleneck, suggestions)
-            
-            # Take action if needed
+    # Print status
+    print_status(status, bottleneck, suggestions)
+    
+    # Append status to board_status.md
+    try:
+        subprocess.run([sys.executable, "scripts/check_board_status.py"],
+                      cwd=Path(__file__).parent.parent,
+                      capture_output=True)
+    except Exception as e:
+        logger.warning(f"Failed to write status summary: {e}")
+    
+    # Take action if needed
             if suggestions:
                 print("\n🔧 Taking automatic remediation actions...")
                 client = BoardClient(board_root, "sean")

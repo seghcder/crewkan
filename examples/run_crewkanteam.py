@@ -120,7 +120,6 @@ def create_agent_node(board_root: str, agent_id: str):
         # Check file-based shutdown signal
         if shutdown_file.exists():
             try:
-                import json
                 shutdown_data = json.loads(shutdown_file.read_text())
                 shutdown_requested = True
                 shutdown_deadline = shutdown_data.get("deadline", 0)
@@ -408,7 +407,6 @@ async def main(max_duration_seconds: int = None):
             shutdown_file = board_root / ".shutdown_requested"
             if not shutdown_file.exists():
                 print(f"\n🛑 Requesting graceful shutdown (60s grace period)")
-                import json
                 shutdown_data = {
                     "requested_at": time.time(),
                     "deadline": time.time() + 60,
