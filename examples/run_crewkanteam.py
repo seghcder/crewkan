@@ -258,6 +258,23 @@ Generate a brief completion comment (1-2 sentences):"""
                 todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
                 issue = todo_issues[0]
                 issue_id = issue["id"]
+                
+                # Get issue details before moving to understand context
+                issue_details = client.get_issue_details(issue_id)
+                
+                # Log that we're starting work on this issue
+                logger.info(f"{agent_id}: Starting new issue {issue_id}: {issue_details.get('title', '')[:50]}")
+                client.activity_logger.info(f"AGENT:{agent_id} | ACTION:start_new_issue | ISSUE:{issue_id} | TITLE:{issue_details.get('title', '')[:50]}")
+                
+                # Read task history and comments to understand context
+                history = issue_details.get("history", [])
+                comments = [h for h in history if h.get("event") == "comment"]
+                if comments:
+                    logger.info(f"{agent_id}: Found {len(comments)} comments on new issue {issue_id}, reviewing context...")
+                    recent_comments = comments[-3:]
+                    for comment in recent_comments:
+                        logger.debug(f"{agent_id}: Previous comment by {comment.get('by', 'unknown')}: {comment.get('details', '')[:100]}")
+                
                 client.move_issue(issue_id, "doing", notify_on_completion=False)
                 return {
                     "step_count": step_count + 1,
