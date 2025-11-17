@@ -25,11 +25,11 @@ def start():
             # Process doesn't exist, remove stale PID file
             pid_file.unlink()
     
-    # Start in background
+    # Start in background (30 minutes = 1800 seconds)
     script_path = Path(__file__).parent.parent / "examples" / "run_crewkanteam.py"
     with open(log_file, "w") as log:
         process = subprocess.Popen(
-            [sys.executable, str(script_path)],
+            [sys.executable, str(script_path), "1800"],  # 30 minutes
             stdout=log,
             stderr=subprocess.STDOUT,
             cwd=Path(__file__).parent.parent,
@@ -59,21 +59,34 @@ def stop():
         shutdown_file.write_text(json.dumps(shutdown_data, indent=2))
         print("Graceful shutdown requested. Waiting 60 seconds...")
         
-        # Wait for process to exit
+        # Wait for process to exit (with timeout)
         import time as time_module
-        for _ in range(60):
+        waited = 0
+        max_wait = 60
+        while waited < max_wait:
             try:
                 os.kill(pid, 0)
                 time_module.sleep(1)
+                waited += 1
             except OSError:
+                # Process exited
                 break
         
         # If still running, force kill
         try:
             os.kill(pid, 0)
+            # Still running, force kill
             os.kill(pid, signal.SIGTERM)
+            time_module.sleep(2)
+            # Check if still running and force kill with SIGKILL
+            try:
+                os.kill(pid, 0)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
             print("Process terminated")
         except OSError:
+            # Process already exited
             pass
         
         pid_file.unlink()

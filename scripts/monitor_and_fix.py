@@ -181,9 +181,20 @@ def investigate_agent_status(board_root: str) -> dict:
 
 def main():
     """Main monitoring loop."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Monitor board and auto-fix issues")
+    parser.add_argument("--max-duration", type=int, default=1800, help="Maximum duration to run in seconds (default: 1800 = 30 min)")
+    parser.add_argument("--check-interval", type=int, default=60, help="Check interval in seconds (default: 60)")
+    parser.add_argument("--busy-threshold", type=int, default=5, help="Wait time before investigating busy agents in minutes (default: 5)")
+    
+    args = parser.parse_args()
+    
     board_root = "boards/crewkanteam"
-    check_interval = 60  # Check every 60 seconds
-    busy_agent_threshold = 5  # Wait 5 minutes before investigating busy agents
+    check_interval = args.check_interval
+    busy_agent_threshold = args.busy_threshold
+    max_duration = args.max_duration
+    start_time = time.time()
     
     print("=" * 60)
     print("Board Monitor & Auto-Fix")
@@ -191,6 +202,7 @@ def main():
     print(f"Board: {board_root}")
     print(f"Check interval: {check_interval}s")
     print(f"Busy agent investigation threshold: {busy_agent_threshold} minutes")
+    print(f"Max duration: {max_duration}s ({max_duration/60:.1f} minutes)")
     print("Press Ctrl+C to stop\n")
     
     last_investigation_time = time.time()
@@ -198,6 +210,11 @@ def main():
     
     try:
         while True:
+            # Check if we've exceeded max duration
+            elapsed = time.time() - start_time
+            if elapsed >= max_duration:
+                print(f"\n⏱️  Maximum duration reached ({max_duration}s)")
+                break
             check_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"\n[{check_time}] Checking board status...")
             
@@ -286,11 +303,29 @@ def main():
                 last_investigation_time = time.time()
             
             # Wait for next check
-            print(f"\n⏳ Next check in {check_interval} seconds...")
+            elapsed = time.time() - start_time
+            remaining = max_duration - elapsed
+            if remaining <= check_interval:
+                print(f"\n⏱️  Approaching time limit, finishing...")
+                break
+            print(f"\n⏳ Next check in {check_interval} seconds... (elapsed: {elapsed/60:.1f} min, remaining: {remaining/60:.1f} min)")
             time.sleep(check_interval)
     
     except KeyboardInterrupt:
-        print("\n\nMonitor stopped")
+        print("\n\nMonitor stopped by user")
+    
+    finally:
+        elapsed = time.time() - start_time
+        print(f"\n✅ Monitor completed (ran for {elapsed/60:.1f} minutes)")
+        print("Final status check:")
+        try:
+            subprocess.run(
+                [sys.executable, "scripts/check_board_status.py", "--no-append"],
+                cwd=Path(__file__).parent.parent,
+                timeout=10
+            )
+        except Exception as e:
+            logger.warning(f"Error running final status check: {e}")
 
 
 if __name__ == "__main__":

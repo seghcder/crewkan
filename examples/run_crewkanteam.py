@@ -158,6 +158,27 @@ def create_agent_node(board_root: str, agent_id: str):
             # Read task history and comments to understand where we left off
             history = issue_details.get("history", [])
             comments = [h for h in history if h.get("event") == "comment"]
+            
+            # Check if this is a restart (issue was already in doing, might have been interrupted)
+            was_in_doing = issue_details.get("column") == "doing"
+            last_agent = None
+            if history:
+                # Find last agent who worked on this
+                for entry in reversed(history):
+                    if entry.get("by") and entry.get("by") != agent_id:
+                        last_agent = entry.get("by")
+                        break
+            
+            # Add restart comment if this is a resume after restart
+            restart_comment = None
+            if was_in_doing and comments:
+                # This might be a restart - add a comment
+                restart_comment = f"🔄 Resuming work on this issue. Reviewing {len(comments)} previous comment(s) to understand context."
+                if last_agent and last_agent != agent_id:
+                    restart_comment += f" Last worked on by {last_agent}."
+                client.add_comment(issue_id, restart_comment)
+                logger.info(f"{agent_id}: Added restart comment to issue {issue_id}")
+            
             if comments:
                 logger.info(f"{agent_id}: Found {len(comments)} comments on issue {issue_id}, reviewing context...")
                 # Log recent comments for context
@@ -269,6 +290,14 @@ Generate a brief completion comment (1-2 sentences):"""
                 # Read task history and comments to understand context
                 history = issue_details.get("history", [])
                 comments = [h for h in history if h.get("event") == "comment"]
+                
+                # Add start comment
+                start_comment = f"🚀 Starting work on this issue."
+                if comments:
+                    start_comment += f" Reviewing {len(comments)} previous comment(s) for context."
+                client.add_comment(issue_id, start_comment)
+                logger.info(f"{agent_id}: Added start comment to issue {issue_id}")
+                
                 if comments:
                     logger.info(f"{agent_id}: Found {len(comments)} comments on new issue {issue_id}, reviewing context...")
                     recent_comments = comments[-3:]
