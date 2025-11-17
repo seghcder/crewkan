@@ -230,7 +230,7 @@ Generate a brief completion comment (1-2 sentences):"""
             todo_issues = json.loads(todo_issues_json)
             
             if todo_issues:
-            todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
+                todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
                 issue = todo_issues[0]
                 issue_id = issue["id"]
                 client.move_issue(issue_id, "doing", notify_on_completion=False)
