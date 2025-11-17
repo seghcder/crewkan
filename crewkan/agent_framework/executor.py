@@ -223,3 +223,6 @@ class SupertoolExecutor:
         all_tools = self.registry.list_all()
         return {tool_id: metadata for tool_id, metadata in all_tools.items() if tool_id in allowed}
 
+
+
+

@@ -140,3 +140,6 @@ class AgentWorkspace:
             logger.warning(f"Error calculating directory size: {e}")
         return total
 
+
+
+

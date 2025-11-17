@@ -171,3 +171,6 @@ class MCPServerRegistry:
         """List all registered servers."""
         return self._servers.copy()
 
+
+
+

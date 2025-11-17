@@ -53,6 +53,8 @@ class AgentState(TypedDict):
     board_root: str
     last_issue_gen_time: float
     should_exit: bool
+    shutdown_requested: bool  # Flag for graceful shutdown
+    shutdown_deadline: float  # Timestamp when shutdown must complete
     step_count: Annotated[int, max_reducer]  # Use max reducer to track highest step
 
 
@@ -252,8 +254,16 @@ Generate a brief completion comment (1-2 sentences):"""
 def should_continue(state: AgentState) -> str:
     """Continue processing unless explicitly told to stop or max steps reached."""
     should_exit = state.get("should_exit", False)
+    shutdown_requested = state.get("shutdown_requested", False)
+    shutdown_deadline = state.get("shutdown_deadline", 0)
     step_count = state.get("step_count", 0)
     max_steps = state.get("max_steps", 1000)
+    
+    # Check graceful shutdown deadline
+    if shutdown_requested and shutdown_deadline > 0:
+        if time.time() >= shutdown_deadline:
+            return "end"
+        # Continue processing but agents should finish current work
     
     if should_exit or step_count >= max_steps:
         return "end"
@@ -265,7 +275,7 @@ def should_continue(state: AgentState) -> str:
 # ============================================================================
 
 def create_team_graph(board_root: str):
-    """Create the LangGraph with all team agents."""
+    """Create the LangGraph with all team agents running in parallel."""
     
     from langgraph.graph import StateGraph
     
@@ -281,10 +291,17 @@ def create_team_graph(board_root: str):
         graph.add_node(agent_id, create_agent_node(board_root, agent_id))
         graph.add_conditional_edges(agent_id, should_continue, {"continue": agent_id, "end": END})
     
-    # Start with all agents in parallel
-    graph.set_entry_point(agent_ids[0] if agent_ids else "architect")
-    for agent_id in agent_ids[1:]:
-        graph.add_edge(agent_ids[0], agent_id)
+    # Create a coordinator node that starts all agents in parallel
+    def coordinator_node(state: AgentState):
+        """Coordinator that starts all agents in parallel."""
+        return state
+    
+    graph.add_node("coordinator", coordinator_node)
+    graph.set_entry_point("coordinator")
+    
+    # Route from coordinator to all agents in parallel
+    for agent_id in agent_ids:
+        graph.add_edge("coordinator", agent_id)
     
     return graph.compile(checkpointer=MemorySaver(), interrupt_before=[], interrupt_after=[])
 
@@ -320,6 +337,8 @@ async def main(max_duration_seconds: int = None):
         "board_root": str(board_root),
         "last_issue_gen_time": 0.0,
         "should_exit": False,
+        "shutdown_requested": False,
+        "shutdown_deadline": 0.0,
         "step_count": 0,
         "max_steps": 1000,
     }
@@ -351,7 +370,19 @@ async def main(max_duration_seconds: int = None):
             counts = count_issues_by_status(str(board_root))
             print(f"\n📊 Step {step_count}, Elapsed: {elapsed:.1f}s: {counts}")
         
-        # Check time limit
+        # Check time limit - request graceful shutdown
+        if max_duration_seconds and elapsed >= max_duration_seconds - 60:
+            # Request graceful shutdown 60 seconds before time limit
+            if not state.get("shutdown_requested", False):
+                print(f"\n🛑 Requesting graceful shutdown (60s grace period)")
+                # Update state to request shutdown
+                shutdown_state = {
+                    "shutdown_requested": True,
+                    "shutdown_deadline": time.time() + 60,
+                }
+                # We can't directly update state in the stream, but we can set a flag
+                # The agents will check this in should_continue
+        
         if max_duration_seconds and elapsed >= max_duration_seconds:
             print(f"\n⏱️  Time limit reached ({max_duration_seconds}s)")
             break

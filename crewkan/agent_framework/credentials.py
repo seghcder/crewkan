@@ -173,3 +173,6 @@ class CredentialManager:
         creds = self.merge_credentials(agent_id, tool_id, required_keys)
         return all(key in creds and creds[key] is not None for key in required_keys)
 
+
+
+
