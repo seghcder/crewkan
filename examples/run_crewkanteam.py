@@ -112,6 +112,23 @@ def create_agent_node(board_root: str, agent_id: str):
         """Agent worker: Processes issues from backlog→todo→doing→done."""
         step_count = state.get("step_count", 0)
         
+        # Check for graceful shutdown request
+        shutdown_requested = state.get("shutdown_requested", False)
+        shutdown_deadline = state.get("shutdown_deadline", 0)
+        if shutdown_requested:
+            time_remaining = shutdown_deadline - time.time() if shutdown_deadline > 0 else 0
+            if time_remaining <= 0:
+                return {
+                    "step_count": step_count + 1,
+                    "should_exit": True,
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"{agent_id.upper()}: Graceful shutdown completed"
+                    }]
+                }
+            # Continue but finish current work quickly - don't start new issues
+            logger.info(f"{agent_id}: Shutdown requested, {time_remaining:.1f}s remaining")
+        
         # Priority order: 1) Complete issues in "doing", 2) Start issues from "todo", 3) Move from "backlog" to "todo"
         
         # Step 1: Check if there's an issue in "doing"
@@ -207,37 +224,40 @@ Generate a brief completion comment (1-2 sentences):"""
             }
         
         # Step 2: Pick highest priority issue from todo and move to doing
-        todo_issues_json = client.list_my_issues(column="todo", limit=10)
-        todo_issues = json.loads(todo_issues_json)
-        
-        if todo_issues:
+        # Skip if shutdown requested (finish current work only)
+        if not shutdown_requested:
+            todo_issues_json = client.list_my_issues(column="todo", limit=10)
+            todo_issues = json.loads(todo_issues_json)
+            
+            if todo_issues:
             todo_issues.sort(key=lambda t: get_priority_value(t.get("priority")), reverse=True)
-            issue = todo_issues[0]
-            issue_id = issue["id"]
-            client.move_issue(issue_id, "doing", notify_on_completion=False)
-            return {
-                "step_count": step_count + 1,
-                "messages": [{
-                    "role": "assistant",
-                    "content": f"{agent_id.upper()}: Started working on {issue_id} ({issue.get('title', '')})"
-                }]
-            }
+                issue = todo_issues[0]
+                issue_id = issue["id"]
+                client.move_issue(issue_id, "doing", notify_on_completion=False)
+                return {
+                    "step_count": step_count + 1,
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"{agent_id.upper()}: Started working on {issue_id} ({issue.get('title', '')})"
+                    }]
+                }
         
-        # Step 3: Move issues from backlog to todo
-        backlog_issues_json = client.list_my_issues(column="backlog", limit=10)
-        backlog_issues = json.loads(backlog_issues_json)
-        
-        if backlog_issues:
-            issue = backlog_issues[0]
-            issue_id = issue["id"]
-            client.move_issue(issue_id, "todo", notify_on_completion=False)
-            return {
-                "step_count": step_count + 1,
-                "messages": [{
-                    "role": "assistant",
-                    "content": f"{agent_id.upper()}: Moved {issue_id} from backlog to todo"
-                }]
-            }
+        # Step 3: Move issues from backlog to todo (skip if shutdown requested)
+        if not shutdown_requested:
+            backlog_issues_json = client.list_my_issues(column="backlog", limit=10)
+            backlog_issues = json.loads(backlog_issues_json)
+            
+            if backlog_issues:
+                issue = backlog_issues[0]
+                issue_id = issue["id"]
+                client.move_issue(issue_id, "todo", notify_on_completion=False)
+                return {
+                    "step_count": step_count + 1,
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"{agent_id.upper()}: Moved {issue_id} from backlog to todo"
+                    }]
+                }
         
         # No issues to process
         return {
