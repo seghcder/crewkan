@@ -238,25 +238,19 @@ def create_agent_node(board_root: str, agent_id: str):
                 work_time = random.uniform(0.5, 1.5)
             
             # If work will take longer than progress interval, add periodic updates
+            # For real long tasks, we'd check elapsed time, but for simulated work we just sleep
+            # In production, this would be checking actual work progress
             if work_time > progress_update_interval / 60:  # If work > 3 minutes
-                elapsed = 0
-                update_count = 0
-                while elapsed < work_time:
-                    sleep_chunk = min(progress_update_interval / 60, work_time - elapsed)
-                    await asyncio.sleep(sleep_chunk)
-                    elapsed += sleep_chunk
-                    update_count += 1
-                    
-                    # Add progress comment every 3 minutes
-                    if update_count % (progress_update_interval / 60 / sleep_chunk) == 0:
-                        progress_comment = f"⏳ Still working on this task... ({int(elapsed * 60)} seconds elapsed)"
-                        if used_supertool:
-                            progress_comment += f" Using supertool: {supertool_result.tool_id if supertool_result else 'unknown'}"
-                        client.add_comment(issue_id, progress_comment)
-                        logger.info(f"{agent_id}: Added progress update to issue {issue_id} ({int(elapsed * 60)}s elapsed)")
-                        client.activity_logger.info(f"AGENT:{agent_id} | ACTION:progress_update | ISSUE:{issue_id} | ELAPSED:{int(elapsed * 60)}s")
-            else:
-                await asyncio.sleep(work_time)
+                # For simulated work, we'll add a progress comment at the start
+                # In real implementation, this would be a loop checking actual progress
+                progress_comment = f"⏳ Working on this task (estimated {int(work_time * 60)} seconds)..."
+                if used_supertool:
+                    progress_comment += f" Using supertool: {supertool_result.tool_id if supertool_result else 'unknown'}"
+                client.add_comment(issue_id, progress_comment)
+                logger.info(f"{agent_id}: Added progress comment to issue {issue_id}")
+                client.activity_logger.info(f"AGENT:{agent_id} | ACTION:progress_update | ISSUE:{issue_id} | ESTIMATED:{int(work_time * 60)}s")
+            
+            await asyncio.sleep(work_time)
             
             # Generate completion comment
             comments_text = "\n".join([
