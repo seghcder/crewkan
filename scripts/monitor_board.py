@@ -254,23 +254,23 @@ def main():
                 if bottleneck.get("issues"):
                     suggestions = suggest_remediation(bottleneck, status)
             
-    # Print status
-    print_status(status, bottleneck, suggestions)
-    
-    # Append status to board_status.md
-    try:
-        subprocess.run([sys.executable, "scripts/check_board_status.py"],
-                      cwd=Path(__file__).parent.parent,
-                      capture_output=True)
-    except Exception as e:
-        logger.warning(f"Failed to write status summary: {e}")
-    
-    # Take action if needed
-    if suggestions:
-        print("\n🔧 Taking automatic remediation actions...")
-        client = BoardClient(board_root, "sean")
-        
-        for suggestion in suggestions:
+            # Print status
+            print_status(status, bottleneck, suggestions)
+            
+            # Append status to board_status.md
+            try:
+                subprocess.run([sys.executable, "scripts/check_board_status.py"],
+                              cwd=Path(__file__).parent.parent,
+                              capture_output=True)
+            except Exception as e:
+                logger.warning(f"Failed to write status summary: {e}")
+            
+            # Take action if needed
+            if suggestions:
+                print("\n🔧 Taking automatic remediation actions...")
+                client = BoardClient(board_root, "sean")
+                
+                for suggestion in suggestions:
                     if suggestion["action"] == "assign_work":
                         agents = suggestion.get("agents", [])
                         issues = suggestion.get("available_issues", [])
