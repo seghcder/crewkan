@@ -112,9 +112,21 @@ def create_agent_node(board_root: str, agent_id: str):
         """Agent worker: Processes issues from backlog→todo→doing→done."""
         step_count = state.get("step_count", 0)
         
-        # Check for graceful shutdown request
+        # Check for graceful shutdown request (from file or state)
+        shutdown_file = Path(board_root) / ".shutdown_requested"
         shutdown_requested = state.get("shutdown_requested", False)
         shutdown_deadline = state.get("shutdown_deadline", 0)
+        
+        # Check file-based shutdown signal
+        if shutdown_file.exists():
+            try:
+                import json
+                shutdown_data = json.loads(shutdown_file.read_text())
+                shutdown_requested = True
+                shutdown_deadline = shutdown_data.get("deadline", 0)
+            except Exception:
+                pass
+        
         if shutdown_requested:
             time_remaining = shutdown_deadline - time.time() if shutdown_deadline > 0 else 0
             if time_remaining <= 0:
@@ -393,15 +405,16 @@ async def main(max_duration_seconds: int = None):
         # Check time limit - request graceful shutdown
         if max_duration_seconds and elapsed >= max_duration_seconds - 60:
             # Request graceful shutdown 60 seconds before time limit
-            if not state.get("shutdown_requested", False):
+            shutdown_file = board_root / ".shutdown_requested"
+            if not shutdown_file.exists():
                 print(f"\n🛑 Requesting graceful shutdown (60s grace period)")
-                # Update state to request shutdown
-                shutdown_state = {
-                    "shutdown_requested": True,
-                    "shutdown_deadline": time.time() + 60,
+                import json
+                shutdown_data = {
+                    "requested_at": time.time(),
+                    "deadline": time.time() + 60,
+                    "grace_period": 60,
                 }
-                # We can't directly update state in the stream, but we can set a flag
-                # The agents will check this in should_continue
+                shutdown_file.write_text(json.dumps(shutdown_data, indent=2))
         
         if max_duration_seconds and elapsed >= max_duration_seconds:
             print(f"\n⏱️  Time limit reached ({max_duration_seconds}s)")
