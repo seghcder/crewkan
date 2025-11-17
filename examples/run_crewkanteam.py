@@ -151,6 +151,20 @@ def create_agent_node(board_root: str, agent_id: str):
             issue_id = issue["id"]
             issue_details = client.get_issue_details(issue_id)
             
+            # Log that we're starting work on this issue (important for restarts)
+            logger.info(f"{agent_id}: Starting work on issue {issue_id}: {issue_details.get('title', '')[:50]}")
+            client.activity_logger.info(f"AGENT:{agent_id} | ACTION:start_work | ISSUE:{issue_id} | TITLE:{issue_details.get('title', '')[:50]}")
+            
+            # Read task history and comments to understand where we left off
+            history = issue_details.get("history", [])
+            comments = [h for h in history if h.get("event") == "comment"]
+            if comments:
+                logger.info(f"{agent_id}: Found {len(comments)} comments on issue {issue_id}, reviewing context...")
+                # Log recent comments for context
+                recent_comments = comments[-3:]  # Last 3 comments
+                for comment in recent_comments:
+                    logger.debug(f"{agent_id}: Previous comment by {comment.get('by', 'unknown')}: {comment.get('details', '')[:100]}")
+            
             # Check if we should use a supertool
             issue_type = issue_details.get("issue_type", "task")
             issue_title = issue_details.get("title", "")
