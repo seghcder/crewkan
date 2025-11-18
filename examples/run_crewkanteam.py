@@ -28,6 +28,7 @@ def max_reducer(left: int, right: int) -> int:
 from langchain_openai import AzureChatOpenAI
 from typing import Annotated, TypedDict
 import json
+from datetime import datetime
 import time
 import random
 import logging
@@ -107,6 +108,11 @@ def create_agent_node(board_root: str, agent_id: str):
     client = BoardClient(board_root, agent_id)
     supertool_executor = SupertoolExecutor(board_root, agent_id)
     available_supertools = supertool_executor.list_available_tools()
+    
+    # Get agent workspace
+    from crewkan.agent_framework.workspace import AgentWorkspace
+    workspace = AgentWorkspace(Path(board_root), agent_id)
+    workspace_path = workspace.get_workspace_path()
     
     async def agent_worker(state: AgentState):
         """Agent worker: Processes issues from backlog→todo→doing→done."""
@@ -283,18 +289,15 @@ def create_agent_node(board_root: str, agent_id: str):
                 files_created = []
                 files_updated = []
                 
-                # For coding tasks, simulate file creation based on issue
-                if agent_id in ["developer", "tester", "architect", "docs"]:
-                    # Simulate file creation based on task
-                    if "test" in issue_title.lower() or "test" in issue_desc.lower():
-                        if "test_supertools" in issue_title.lower():
-                            files_updated.append("tests/test_supertools.py")
-                    elif "hello_world" in issue_title.lower() or "hello" in issue_title.lower():
-                        files_created.append("examples/hello_world.py")
-                    elif "readme" in issue_title.lower():
-                        files_created.append("tests/README.md")
-                    elif "monitor" in issue_title.lower() or "indentation" in issue_title.lower():
-                        files_updated.append("scripts/monitor_and_fix.py")
+                # Note: File creation should be done by supertools or agents based on task instructions
+                # We track files from supertool results or workspace scanning
+                
+                # Scan workspace for files created during this task
+                workspace_files_before = set()
+                if workspace_path.exists():
+                    workspace_files_before = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
+                
+                # Also check supertool results for file info
                 
                 if used_supertool and supertool_result:
                     # Extract file information from supertool result if available
@@ -306,6 +309,17 @@ def create_agent_node(board_root: str, agent_id: str):
                     if supertool_result.metadata:
                         files_created.extend(supertool_result.metadata.get('files_created', []))
                         files_updated.extend(supertool_result.metadata.get('files_updated', []))
+                
+                # Scan workspace for files created during this task
+                workspace_files_after = set()
+                if workspace_path.exists():
+                    workspace_files_after = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
+                
+                # Find newly created files
+                new_files = workspace_files_after - workspace_files_before
+                if new_files:
+                    files_created.extend([str(f) for f in new_files])
+                    logger.info(f"{agent_id}: Detected {len(new_files)} new files in workspace: {[str(f) for f in new_files]}")
                 
                 # Build completion comment with file information
                 completion_comment = None
@@ -319,13 +333,18 @@ def create_agent_node(board_root: str, agent_id: str):
                             if files_updated:
                                 files_info += f"Updated: {', '.join(files_updated)}\n"
                         
+                        # Include workspace information in prompt
+                        workspace_info = f"\n\nYour workspace is located at: {workspace_path}"
+                        workspace_info += f"\nAll files should be created in your workspace unless otherwise specified."
+                        
                         completion_prompt = f"""You are {agent_id} completing an issue. Generate a brief completion comment.
 
-    Issue: {issue_title}
-    Description: {issue_desc}
-    {f"Supertool result: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}{files_info}
+Issue: {issue_title}
+Description: {issue_desc}
+{workspace_info}
+{f"Supertool result: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}{files_info}
 
-    Generate a brief completion comment (1-2 sentences):"""
+Generate a brief completion comment (1-2 sentences):"""
                         response = llm.invoke(completion_prompt)
                         completion_comment = response.content.strip()
                     except Exception:
