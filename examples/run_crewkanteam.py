@@ -431,7 +431,8 @@ Generate a brief completion comment (1-2 sentences):"""
                             reassign_comment = f"Reassigning to {next_agent} for next steps as instructed in the task description."
                             logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent}")
                             try:
-                                client.reassign_issue(issue_id, [next_agent])
+                                # reassign_issue expects assignees as a list
+                                client.reassign_issue(issue_id, assignees=[next_agent])
                                 client.add_comment(issue_id, reassign_comment)
                                 follow_up_handled = True
                                 logger.info(f"{agent_id}: Successfully reassigned {issue_id} to {next_agent}")
@@ -475,7 +476,7 @@ If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": [
                                         next_agent = follow_up_json["reassign_to"]
                                         reassign_comment = follow_up_json.get("reassign_comment", f"Reassigning to {next_agent} for next steps.")
                                         logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent} (from LLM)")
-                                        client.reassign_issue(issue_id, [next_agent])
+                                        client.reassign_issue(issue_id, assignees=[next_agent])
                                         client.add_comment(issue_id, reassign_comment)
                                         follow_up_handled = True
                                     
