@@ -202,9 +202,12 @@ def create_agent_node(board_root: str, agent_id: str):
                 issue_desc = issue_details.get("description", "")
                 
                 # Add workspace context to issue description for agent awareness
+                shared_workspace_path = Path(board_root) / "workspaces" / "shared"
                 workspace_info = f"\n\n[WORKSPACE] Your workspace is located at: {workspace_path}\n"
                 workspace_info += "All files you create should be placed in your workspace directory unless the task specifies otherwise.\n"
-                workspace_info += "You can use supertools (like Cline) to help create and modify files in your workspace.\n"
+                workspace_info += f"There is also a shared workspace at: {shared_workspace_path}\n"
+                workspace_info += "Use the shared workspace for files that need to be accessed by multiple agents or for cross-agent collaboration.\n"
+                workspace_info += "You can use supertools (like Cline) to help create and modify files in your workspace or shared workspace.\n"
                 enhanced_desc = issue_desc + workspace_info if issue_desc else workspace_info
                 
                 logger.info(f"{agent_id}: Checking supertools for {issue_id}. Title: {issue_title[:50]}, available_supertools type: {type(available_supertools)}")
