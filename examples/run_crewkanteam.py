@@ -416,8 +416,30 @@ Generate a brief completion comment (1-2 sentences):"""
                     if any(phrase in desc_lower for phrase in ["assign", "assign a task", "create a task", "assign to", "then assign", "after completing", "after the"]):
                         logger.info(f"{agent_id}: Task description mentions follow-up assignments, reviewing...")
                         
-                        # Use LLM to extract follow-up instructions if available
-                        if llm:
+                        # First, try simple pattern matching for common cases
+                        next_agent = None
+                        if "assign to the tester" in desc_lower or "assign this issue to the tester" in desc_lower or "assign to tester" in desc_lower:
+                            next_agent = "tester"
+                        elif "assign to the docs" in desc_lower or "assign this issue to the docs" in desc_lower or "assign to docs" in desc_lower or "assign to the documentor" in desc_lower:
+                            next_agent = "docs"
+                        elif "assign to the developer" in desc_lower or "assign this issue to the developer" in desc_lower:
+                            next_agent = "developer"
+                        elif "assign to the community" in desc_lower or "assign this issue to the community" in desc_lower:
+                            next_agent = "community"
+                        
+                        if next_agent:
+                            reassign_comment = f"Reassigning to {next_agent} for next steps as instructed in the task description."
+                            logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent}")
+                            try:
+                                client.reassign_issue(issue_id, [next_agent])
+                                client.add_comment(issue_id, reassign_comment)
+                                follow_up_handled = True
+                                logger.info(f"{agent_id}: Successfully reassigned {issue_id} to {next_agent}")
+                            except Exception as e:
+                                logger.error(f"{agent_id}: Error reassigning issue: {e}", exc_info=True)
+                        
+                        # Use LLM to extract more complex follow-up instructions if available and no simple match
+                        if not follow_up_handled and llm:
                             try:
                                 follow_up_prompt = f"""Review this task description and determine if follow-up actions are needed:
 
@@ -452,7 +474,7 @@ If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": [
                                     if follow_up_json.get("reassign_to"):
                                         next_agent = follow_up_json["reassign_to"]
                                         reassign_comment = follow_up_json.get("reassign_comment", f"Reassigning to {next_agent} for next steps.")
-                                        logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent}")
+                                        logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent} (from LLM)")
                                         client.reassign_issue(issue_id, [next_agent])
                                         client.add_comment(issue_id, reassign_comment)
                                         follow_up_handled = True
@@ -477,7 +499,7 @@ If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": [
                                     if follow_up_handled:
                                         logger.info(f"{agent_id}: Handled follow-up actions for {issue_id}")
                             except Exception as e:
-                                logger.warning(f"{agent_id}: Error processing follow-up instructions: {e}")
+                                logger.warning(f"{agent_id}: Error processing follow-up instructions with LLM: {e}")
                                 # Continue to mark as done if follow-up processing fails
                     
                     # Only move to done if no follow-up actions were taken
