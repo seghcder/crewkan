@@ -413,7 +413,7 @@ Generate a brief completion comment (1-2 sentences):"""
                     
                     # Look for patterns like "assign to", "assign a task to", "create a task for", etc.
                     desc_lower = enhanced_desc.lower()
-                    if any(phrase in desc_lower for phrase in ["assign", "assign a task", "create a task", "assign to", "then assign"]):
+                    if any(phrase in desc_lower for phrase in ["assign", "assign a task", "create a task", "assign to", "then assign", "after completing", "after the"]):
                         logger.info(f"{agent_id}: Task description mentions follow-up assignments, reviewing...")
                         
                         # Use LLM to extract follow-up instructions if available
