@@ -57,8 +57,13 @@ class DeepResearchSupertool(Supertool):
                 logger.warning(f"No explicit query found, using metadata: {query[:50]}")
             
             depth = context.metadata.get("depth", 3)
-            workspace_path = context.workspace_path
+            # Use base workspace path, not execution subdirectory
+            if context.board_root:
+                workspace_path = context.board_root / "workspaces" / context.agent_id
+            else:
+                workspace_path = context.workspace_path.parent if context.workspace_path.name != context.agent_id else context.workspace_path
             workspace_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using workspace path: {workspace_path}")
             
             # Check if task mentions creating a file/document
             files_created = []
