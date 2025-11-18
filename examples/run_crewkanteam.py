@@ -420,14 +420,29 @@ Generate a brief completion comment (1-2 sentences):"""
                         # First, try simple pattern matching for common cases
                         # Don't reassign to self - skip if next_agent would be the current agent
                         next_agent = None
-                        if "assign to the tester" in desc_lower or "assign this issue to the tester" in desc_lower or "assign to tester" in desc_lower:
-                            next_agent = "tester"
-                        elif "assign to the docs" in desc_lower or "assign this issue to the docs" in desc_lower or "assign to docs" in desc_lower or "assign to the documentor" in desc_lower:
-                            next_agent = "docs"
-                        elif "assign to the developer" in desc_lower or "assign this issue to the developer" in desc_lower:
-                            next_agent = "developer"
-                        elif "assign to the community" in desc_lower or "assign this issue to the community" in desc_lower:
-                            next_agent = "community"
+                        
+                        # Check for "after [current agent]" patterns first
+                        after_pattern = f"after the {agent_id}" in desc_lower or f"after {agent_id}" in desc_lower
+                        if after_pattern:
+                            # Look for the next agent mentioned after this pattern
+                            if "assign to the docs" in desc_lower or "assign this issue to the docs" in desc_lower or "assign to docs" in desc_lower or "assign to the documentor" in desc_lower:
+                                next_agent = "docs"
+                            elif "assign to the tester" in desc_lower or "assign this issue to the tester" in desc_lower or "assign to tester" in desc_lower:
+                                next_agent = "tester"
+                            elif "assign to the developer" in desc_lower or "assign this issue to the developer" in desc_lower:
+                                next_agent = "developer"
+                            elif "assign to the community" in desc_lower or "assign this issue to the community" in desc_lower:
+                                next_agent = "community"
+                        else:
+                            # Standard pattern matching
+                            if "assign to the tester" in desc_lower or "assign this issue to the tester" in desc_lower or "assign to tester" in desc_lower:
+                                next_agent = "tester"
+                            elif "assign to the docs" in desc_lower or "assign this issue to the docs" in desc_lower or "assign to docs" in desc_lower or "assign to the documentor" in desc_lower:
+                                next_agent = "docs"
+                            elif "assign to the developer" in desc_lower or "assign this issue to the developer" in desc_lower:
+                                next_agent = "developer"
+                            elif "assign to the community" in desc_lower or "assign this issue to the community" in desc_lower:
+                                next_agent = "community"
                         
                         # Don't reassign to self
                         if next_agent == agent_id:
