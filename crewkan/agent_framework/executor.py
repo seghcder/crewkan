@@ -159,10 +159,12 @@ class SupertoolExecutor:
             metadata=additional_context or {},
         )
         
-        # Validate context
+        # Validate context (if tool implements it)
         try:
-            tool.validate_context(context)
+            if hasattr(tool, 'validate_context'):
+                tool.validate_context(context)
         except SupertoolError as e:
+            logger.warning(f"Context validation failed for {tool_id}: {e}")
             return SupertoolResult(
                 success=False,
                 output="",
