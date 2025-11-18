@@ -227,21 +227,27 @@ def create_agent_node(board_root: str, agent_id: str):
                 supertool_result = None
                 
                 # Use appropriate supertool based on agent and issue
-                if agent_id == "community" and ("research" in issue_title.lower() or "community" in issue_title.lower()):
+                if agent_id == "community" and ("research" in issue_title.lower() or "community" in issue_title.lower() or "strategy" in issue_title.lower() or "engagement" in issue_title.lower()):
                     logger.info(f"{agent_id}: Checking for deep-research supertool")
-                    if "deep-research" in available_supertools:
+                    tool_keys = list(available_supertools.keys()) if isinstance(available_supertools, dict) else available_supertools
+                    logger.info(f"{agent_id}: Available supertools: {tool_keys}")
+                    if "deep-research" in tool_keys:
                         try:
+                            logger.info(f"{agent_id}: Executing deep-research supertool for {issue_id}")
                             supertool_result = await supertool_executor.execute(
                                 tool_id="deep-research",
                                 issue_id=issue_id,
                                 additional_context={
-                                    "query": issue_desc or issue_title,
+                                    "query": enhanced_desc or issue_title,
                                     "depth": 3,
                                 }
                             )
+                            logger.info(f"{agent_id}: Deep-research supertool completed. Success: {supertool_result.success if supertool_result else 'None'}")
                             used_supertool = True
                         except Exception as e:
-                            logger.warning(f"Error using deep-research supertool: {e}")
+                            logger.error(f"{agent_id}: Error using deep-research supertool: {e}", exc_info=True)
+                    else:
+                        logger.warning(f"{agent_id}: deep-research not in available supertools: {tool_keys}")
                 
                 elif agent_id in ["architect", "developer", "tester", "docs"]:
                     # Check if cline is available (available_supertools is a dict)
