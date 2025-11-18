@@ -410,6 +410,7 @@ Generate a brief completion comment (1-2 sentences):"""
                     # Review original instructions for follow-up tasks
                     # Check if description mentions assigning to other agents or creating new tasks
                     follow_up_handled = False
+                    was_reassigned = False  # Track if we actually reassigned
                     
                     # Look for patterns like "assign to", "assign a task to", "create a task for", etc.
                     desc_lower = enhanced_desc.lower()
@@ -435,6 +436,7 @@ Generate a brief completion comment (1-2 sentences):"""
                                 client.reassign_issue(issue_id, new_assignee_id=next_agent, keep_existing=False)
                                 client.add_comment(issue_id, reassign_comment)
                                 follow_up_handled = True
+                                was_reassigned = True
                                 logger.info(f"{agent_id}: Successfully reassigned {issue_id} to {next_agent}")
                             except Exception as e:
                                 logger.error(f"{agent_id}: Error reassigning issue: {e}", exc_info=True)
@@ -479,6 +481,7 @@ If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": [
                                         client.reassign_issue(issue_id, new_assignee_id=next_agent, keep_existing=False)
                                         client.add_comment(issue_id, reassign_comment)
                                         follow_up_handled = True
+                                        was_reassigned = True
                                     
                                     # Handle new task creation
                                     new_tasks = follow_up_json.get("create_tasks", [])
@@ -509,8 +512,12 @@ If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": [
                         client.move_issue(issue_id, "done", notify_on_completion=True)
                         logger.info(f"{agent_id}: Moved {issue_id} to done")
                     else:
-                        # Keep in doing if reassigned, or move to done if only new tasks created
-                        if not any(phrase in desc_lower for phrase in ["reassign", "assign to", "then assign"]):
+                        # If reassigned, keep in doing so the next agent can pick it up
+                        if was_reassigned:
+                            # Keep in doing if reassigned - don't move to done yet
+                            logger.info(f"{agent_id}: Issue {issue_id} was reassigned, keeping in doing column")
+                        else:
+                            # Only new tasks created, can mark as done
                             client.move_issue(issue_id, "done", notify_on_completion=True)
                             logger.info(f"{agent_id}: Moved {issue_id} to done after creating follow-up tasks")
                     
