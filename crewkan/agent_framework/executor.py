@@ -137,9 +137,14 @@ class SupertoolExecutor:
         
         # Get credentials for this tool
         required_creds = tool.get_required_credentials()
-        credentials = self.credential_manager.merge_credentials(
-            self.agent_id, tool_id, required_creds
-        )
+        try:
+            credentials = self.credential_manager.merge_credentials(
+                self.agent_id, tool_id, required_creds
+            )
+        except ValueError as e:
+            # If credentials are missing but tool can work without them, use empty dict
+            logger.warning(f"Missing credentials for {tool_id}: {e}. Tool may work without them.")
+            credentials = {}
         
         # Create execution context
         exec_path = self.workspace.get_execution_path(execution_id)
