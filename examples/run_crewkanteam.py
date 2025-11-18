@@ -110,7 +110,8 @@ def create_agent_node(board_root: str, agent_id: str):
     
     async def agent_worker(state: AgentState):
         """Agent worker: Processes issues from backlog→todo→doing→done."""
-        step_count = state.get("step_count", 0)
+        try:
+            step_count = state.get("step_count", 0)
         
         # Check for graceful shutdown request (from file or state)
         shutdown_file = Path(board_root) / ".shutdown_requested"
@@ -252,7 +253,10 @@ def create_agent_node(board_root: str, agent_id: str):
                 client.add_comment(issue_id, progress_comment)
                 logger.info(f"{agent_id}: Added progress comment to issue {issue_id}")
             
+            # Do the work
+            logger.info(f"{agent_id}: Working on {issue_id} for {work_time:.2f} seconds...")
             await asyncio.sleep(work_time)
+            logger.info(f"{agent_id}: Finished work on {issue_id}, generating completion comment...")
             
             # Generate completion comment
             comments_text = "\n".join([
@@ -324,18 +328,32 @@ Generate a brief completion comment (1-2 sentences):"""
                     files_section += f"- Updated: {', '.join(files_updated)}\n"
                 completion_comment += files_section
             
-            client.add_comment(issue_id, completion_comment)
-            
-            # Move to done
-            client.move_issue(issue_id, "done", notify_on_completion=True)
-            return {
-                "step_count": step_count + 1,
-                "messages": [{
-                    "role": "assistant",
-                    "content": f"{agent_id.upper()}: Completed {issue_id} ({issue_title})" + 
-                              (f" using supertool" if used_supertool else "")
-                }]
-            }
+            try:
+                client.add_comment(issue_id, completion_comment)
+                logger.info(f"{agent_id}: Added completion comment to {issue_id}")
+                
+                # Move to done
+                client.move_issue(issue_id, "done", notify_on_completion=True)
+                logger.info(f"{agent_id}: Moved {issue_id} to done")
+                
+                return {
+                    "step_count": step_count + 1,
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"{agent_id.upper()}: Completed {issue_id} ({issue_title})" + 
+                                  (f" using supertool" if used_supertool else "")
+                    }]
+                }
+            except Exception as e:
+                logger.error(f"{agent_id}: Error completing {issue_id}: {e}", exc_info=True)
+                # Return anyway to avoid getting stuck
+                return {
+                    "step_count": step_count + 1,
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"{agent_id.upper()}: Error completing {issue_id}: {str(e)}"
+                    }]
+                }
         
         # Step 2: Pick highest priority issue from todo and move to doing
         # Skip if shutdown requested (finish current work only)
@@ -405,6 +423,15 @@ Generate a brief completion comment (1-2 sentences):"""
                 "content": f"{agent_id.upper()}: No issues to process"
             }]
         }
+        except Exception as e:
+            logger.error(f"{agent_id}: Error in agent_worker: {e}", exc_info=True)
+            return {
+                "step_count": step_count + 1,
+                "messages": [{
+                    "role": "assistant",
+                    "content": f"{agent_id.upper()}: Error: {str(e)}"
+                }]
+            }
     
     return agent_worker
 
