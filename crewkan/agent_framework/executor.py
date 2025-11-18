@@ -120,9 +120,11 @@ class SupertoolExecutor:
             )
         
         # Get tool instance
-        tool = self.registry.get(tool_id)
-        if not tool:
+        # Registry returns tool class, need to instantiate
+        tool_class = self.registry.get_tool_class(tool_id)
+        if not tool_class:
             raise SupertoolError(f"Supertool {tool_id} not found in registry")
+        tool = tool_class()
         
         # Get constraints
         constraints = self.get_agent_constraints()

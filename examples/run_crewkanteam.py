@@ -188,16 +188,21 @@ def create_agent_node(board_root: str, agent_id: str):
                     for comment in recent_comments:
                         logger.debug(f"{agent_id}: Previous comment by {comment.get('by', 'unknown')}: {comment.get('details', '')[:100]}")
                 
+                logger.info(f"{agent_id}: Proceeding to check supertools and do work on {issue_id}")
+                
                 # Check if we should use a supertool
                 issue_type = issue_details.get("issue_type", "task")
                 issue_title = issue_details.get("title", "")
                 issue_desc = issue_details.get("description", "")
+                
+                logger.info(f"{agent_id}: Checking supertools for {issue_id}. Title: {issue_title[:50]}, available_supertools type: {type(available_supertools)}")
                 
                 used_supertool = False
                 supertool_result = None
                 
                 # Use appropriate supertool based on agent and issue
                 if agent_id == "community" and ("research" in issue_title.lower() or "community" in issue_title.lower()):
+                    logger.info(f"{agent_id}: Checking for deep-research supertool")
                     if "deep-research" in available_supertools:
                         try:
                             supertool_result = await supertool_executor.execute(
@@ -215,9 +220,13 @@ def create_agent_node(board_root: str, agent_id: str):
                 elif agent_id in ["architect", "developer", "tester", "docs"]:
                     # Check if cline is available (available_supertools is a dict)
                     tool_keys = list(available_supertools.keys()) if isinstance(available_supertools, dict) else available_supertools
-                    if "cline" in tool_keys and any(kw in issue_title.lower() or kw in issue_desc.lower() 
-                                                            for kw in ["code", "implement", "fix", "refactor", "debug", "test", "add", "create", "write"]):
+                    logger.info(f"{agent_id}: Available tool keys: {tool_keys}")
+                    keywords_match = any(kw in issue_title.lower() or kw in issue_desc.lower() 
+                                        for kw in ["code", "implement", "fix", "refactor", "debug", "test", "add", "create", "write"])
+                    logger.info(f"{agent_id}: Keywords match: {keywords_match}, cline in tools: {'cline' in tool_keys}")
+                    if "cline" in tool_keys and keywords_match:
                         try:
+                            logger.info(f"{agent_id}: Attempting to execute Cline supertool for {issue_id}")
                             supertool_result = await supertool_executor.execute(
                                 tool_id="cline",
                                 issue_id=issue_id,
@@ -225,11 +234,14 @@ def create_agent_node(board_root: str, agent_id: str):
                                     "prompt": f"Work on this: {issue_title}\n\n{issue_desc}",
                                 }
                             )
+                            logger.info(f"{agent_id}: Cline supertool executed successfully. Result: {supertool_result.success if supertool_result else 'None'}")
                             used_supertool = True
                             logger.info(f"{agent_id}: Used Cline supertool for {issue_id}")
                         except Exception as e:
-                            logger.warning(f"{agent_id}: Error using Cline supertool: {e}")
+                            logger.error(f"{agent_id}: Error using Cline supertool: {e}", exc_info=True)
                             # Continue without supertool
+                    else:
+                        logger.info(f"{agent_id}: Not using supertool (cline in tools: {'cline' in tool_keys}, keywords_match: {keywords_match})")
                 
                 # For long-running tasks, add periodic progress updates
                 work_start_time = time.time()
@@ -238,8 +250,10 @@ def create_agent_node(board_root: str, agent_id: str):
                 # Simulate work with periodic progress updates
                 if used_supertool and supertool_result and supertool_result.execution_time:
                     work_time = min(supertool_result.execution_time, 2.0)
+                    logger.info(f"{agent_id}: Using supertool execution time: {work_time:.2f}s")
                 else:
                     work_time = random.uniform(0.5, 1.5)
+                    logger.info(f"{agent_id}: Using random work time: {work_time:.2f}s")
                 
                 # If work will take longer than progress interval, add periodic updates
                 # For real long tasks, we'd check elapsed time, but for simulated work we just sleep
