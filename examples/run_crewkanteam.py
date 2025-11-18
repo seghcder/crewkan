@@ -201,7 +201,19 @@ def create_agent_node(board_root: str, agent_id: str):
                 issue_title = issue_details.get("title", "")
                 issue_desc = issue_details.get("description", "")
                 
+                # Add workspace context to issue description for agent awareness
+                workspace_info = f"\n\n[WORKSPACE] Your workspace is located at: {workspace_path}\n"
+                workspace_info += "All files you create should be placed in your workspace directory unless the task specifies otherwise.\n"
+                workspace_info += "You can use supertools (like Cline) to help create and modify files in your workspace.\n"
+                enhanced_desc = issue_desc + workspace_info if issue_desc else workspace_info
+                
                 logger.info(f"{agent_id}: Checking supertools for {issue_id}. Title: {issue_title[:50]}, available_supertools type: {type(available_supertools)}")
+                logger.info(f"{agent_id}: Workspace path: {workspace_path}")
+                
+                # Capture workspace state before work starts
+                workspace_files_before = set()
+                if workspace_path.exists():
+                    workspace_files_before = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
                 
                 used_supertool = False
                 supertool_result = None
@@ -233,11 +245,20 @@ def create_agent_node(board_root: str, agent_id: str):
                     if "cline" in tool_keys and keywords_match:
                         try:
                             logger.info(f"{agent_id}: Attempting to execute Cline supertool for {issue_id}")
+                            # Include workspace path in context for supertool
+                            supertool_prompt = f"""Work on this task:
+Title: {issue_title}
+Description: {enhanced_desc}
+
+IMPORTANT: All files must be created in the workspace directory: {workspace_path}
+Use the workspace path when creating or modifying files."""
+                            
                             supertool_result = await supertool_executor.execute(
                                 tool_id="cline",
                                 issue_id=issue_id,
                                 additional_context={
-                                    "prompt": f"Work on this: {issue_title}\n\n{issue_desc}",
+                                    "prompt": supertool_prompt,
+                                    "workspace_path": str(workspace_path),
                                 }
                             )
                             logger.info(f"{agent_id}: Cline supertool executed successfully. Result: {supertool_result.success if supertool_result else 'None'}")
