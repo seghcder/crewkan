@@ -33,7 +33,7 @@ class DeepResearchSupertool(Supertool):
         )
     
     def get_required_credentials(self) -> list[str]:
-        return ["llm_api_key", "llm_endpoint"]  # Requires LLM for reasoning
+        return []  # Can work without credentials, will use template-based output
     
     async def execute(self, context: SupertoolContext) -> SupertoolResult:
         """
