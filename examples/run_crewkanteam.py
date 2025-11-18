@@ -398,9 +398,89 @@ Generate a brief completion comment (1-2 sentences):"""
                     client.add_comment(issue_id, completion_comment)
                     logger.info(f"{agent_id}: Added completion comment to {issue_id}")
                     
-                    # Move to done
-                    client.move_issue(issue_id, "done", notify_on_completion=True)
-                    logger.info(f"{agent_id}: Moved {issue_id} to done")
+                    # Review original instructions for follow-up tasks
+                    # Check if description mentions assigning to other agents or creating new tasks
+                    follow_up_handled = False
+                    
+                    # Look for patterns like "assign to", "assign a task to", "create a task for", etc.
+                    desc_lower = enhanced_desc.lower()
+                    if any(phrase in desc_lower for phrase in ["assign", "assign a task", "create a task", "assign to", "then assign"]):
+                        logger.info(f"{agent_id}: Task description mentions follow-up assignments, reviewing...")
+                        
+                        # Use LLM to extract follow-up instructions if available
+                        if llm:
+                            try:
+                                follow_up_prompt = f"""Review this task description and determine if follow-up actions are needed:
+
+Task: {issue_title}
+Description: {enhanced_desc}
+
+Identify:
+1. Should this task be reassigned to another agent? If yes, which agent (tester, docs, community, etc.)?
+2. Should new tasks be created? If yes, what tasks and for which agents?
+
+Respond in JSON format:
+{{
+  "reassign_to": null or "agent_id",
+  "reassign_comment": "comment explaining reassignment",
+  "create_tasks": [
+    {{"title": "task title", "description": "task description", "assign_to": "agent_id", "priority": "high|medium|low"}}
+  ]
+}}
+
+If no follow-up actions needed, return: {{"reassign_to": null, "create_tasks": []}}"""
+                                
+                                response = llm.invoke(follow_up_prompt)
+                                follow_up_text = response.content.strip()
+                                
+                                # Try to parse JSON from response
+                                import re
+                                json_match = re.search(r'\{[^}]+\}', follow_up_text, re.DOTALL)
+                                if json_match:
+                                    follow_up_json = json.loads(json_match.group())
+                                    
+                                    # Handle reassignment
+                                    if follow_up_json.get("reassign_to"):
+                                        next_agent = follow_up_json["reassign_to"]
+                                        reassign_comment = follow_up_json.get("reassign_comment", f"Reassigning to {next_agent} for next steps.")
+                                        logger.info(f"{agent_id}: Reassigning {issue_id} to {next_agent}")
+                                        client.reassign_issue(issue_id, [next_agent])
+                                        client.add_comment(issue_id, reassign_comment)
+                                        follow_up_handled = True
+                                    
+                                    # Handle new task creation
+                                    new_tasks = follow_up_json.get("create_tasks", [])
+                                    if new_tasks:
+                                        logger.info(f"{agent_id}: Creating {len(new_tasks)} follow-up tasks")
+                                        for task_spec in new_tasks:
+                                            new_task_id = client.create_issue(
+                                                title=task_spec.get("title", "Follow-up task"),
+                                                description=task_spec.get("description", ""),
+                                                column="todo",
+                                                assignees=[task_spec.get("assign_to", "developer")],
+                                                priority=task_spec.get("priority", "medium"),
+                                                issue_type="task"
+                                            )
+                                            logger.info(f"{agent_id}: Created follow-up task {new_task_id} for {task_spec.get('assign_to')}")
+                                            client.add_comment(issue_id, f"Created follow-up task {new_task_id}: {task_spec.get('title')}")
+                                        follow_up_handled = True
+                                    
+                                    if follow_up_handled:
+                                        logger.info(f"{agent_id}: Handled follow-up actions for {issue_id}")
+                            except Exception as e:
+                                logger.warning(f"{agent_id}: Error processing follow-up instructions: {e}")
+                                # Continue to mark as done if follow-up processing fails
+                    
+                    # Only move to done if no follow-up actions were taken
+                    if not follow_up_handled:
+                        # Move to done
+                        client.move_issue(issue_id, "done", notify_on_completion=True)
+                        logger.info(f"{agent_id}: Moved {issue_id} to done")
+                    else:
+                        # Keep in doing if reassigned, or move to done if only new tasks created
+                        if not any(phrase in desc_lower for phrase in ["reassign", "assign to", "then assign"]):
+                            client.move_issue(issue_id, "done", notify_on_completion=True)
+                            logger.info(f"{agent_id}: Moved {issue_id} to done after creating follow-up tasks")
                     
                     return {
                         "step_count": step_count + 1,
