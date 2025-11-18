@@ -418,6 +418,7 @@ Generate a brief completion comment (1-2 sentences):"""
                         logger.info(f"{agent_id}: Task description mentions follow-up assignments, reviewing...")
                         
                         # First, try simple pattern matching for common cases
+                        # Don't reassign to self - skip if next_agent would be the current agent
                         next_agent = None
                         if "assign to the tester" in desc_lower or "assign this issue to the tester" in desc_lower or "assign to tester" in desc_lower:
                             next_agent = "tester"
@@ -427,6 +428,11 @@ Generate a brief completion comment (1-2 sentences):"""
                             next_agent = "developer"
                         elif "assign to the community" in desc_lower or "assign this issue to the community" in desc_lower:
                             next_agent = "community"
+                        
+                        # Don't reassign to self
+                        if next_agent == agent_id:
+                            logger.info(f"{agent_id}: Skipping reassignment to self ({next_agent})")
+                            next_agent = None
                         
                         if next_agent:
                             reassign_comment = f"Reassigning to {next_agent} for next steps as instructed in the task description."
