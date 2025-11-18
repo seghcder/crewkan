@@ -44,15 +44,17 @@ class DeepResearchSupertool(Supertool):
         - depth: Optional depth level (1-5, default 3)
         """
         try:
+            # Get query from metadata (which comes from additional_context)
             query = context.metadata.get("query")
             if not query:
-                # Try to get from issue description or title
-                issue_details = getattr(context, 'issue_details', None)
-                if issue_details:
-                    query = issue_details.get('description', '') or issue_details.get('title', '')
+                # Try to get from issue details
+                if context.issue_details:
+                    query = context.issue_details.get('description', '') or context.issue_details.get('title', '')
             
             if not query:
-                raise SupertoolError("Missing 'query' in additional_context or issue details")
+                # Last resort: use the full metadata as query
+                query = str(context.metadata) if context.metadata else "Research task"
+                logger.warning(f"No explicit query found, using metadata: {query[:50]}")
             
             depth = context.metadata.get("depth", 3)
             workspace_path = context.workspace_path
