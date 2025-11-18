@@ -320,11 +320,7 @@ Use the workspace path when creating or modifying files."""
                 
                 # Note: File creation should be done by supertools or agents based on task instructions
                 # We track files from supertool results or workspace scanning
-                
-                # Scan workspace for files created during this task
-                workspace_files_before = set()
-                if workspace_path.exists():
-                    workspace_files_before = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
+                # workspace_files_before was already captured before work started
                 
                 # Also check supertool results for file info
                 
