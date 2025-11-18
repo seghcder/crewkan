@@ -153,7 +153,6 @@ def create_agent_node(board_root: str, agent_id: str):
             
             # Log that we're starting work on this issue (important for restarts)
             logger.info(f"{agent_id}: Starting work on issue {issue_id}: {issue_details.get('title', '')[:50]}")
-            client.activity_logger.info(f"AGENT:{agent_id} | ACTION:start_work | ISSUE:{issue_id} | TITLE:{issue_details.get('title', '')[:50]}")
             
             # Read task history and comments to understand where we left off
             history = issue_details.get("history", [])
@@ -248,7 +247,6 @@ def create_agent_node(board_root: str, agent_id: str):
                     progress_comment += f" Using supertool: {supertool_result.tool_id if supertool_result else 'unknown'}"
                 client.add_comment(issue_id, progress_comment)
                 logger.info(f"{agent_id}: Added progress comment to issue {issue_id}")
-                client.activity_logger.info(f"AGENT:{agent_id} | ACTION:progress_update | ISSUE:{issue_id} | ESTIMATED:{int(work_time * 60)}s")
             
             await asyncio.sleep(work_time)
             
@@ -259,14 +257,38 @@ def create_agent_node(board_root: str, agent_id: str):
                 if h.get("event") == "comment"
             ])
             
+            # Track files created/updated (if using supertool, it might have file info)
+            files_created = []
+            files_updated = []
+            
+            if used_supertool and supertool_result:
+                # Extract file information from supertool result if available
+                if hasattr(supertool_result, 'files_created'):
+                    files_created = supertool_result.files_created or []
+                if hasattr(supertool_result, 'files_updated'):
+                    files_updated = supertool_result.files_updated or []
+                # Also check metadata
+                if supertool_result.metadata:
+                    files_created.extend(supertool_result.metadata.get('files_created', []))
+                    files_updated.extend(supertool_result.metadata.get('files_updated', []))
+            
+            # Build completion comment with file information
             completion_comment = None
             if llm:
                 try:
+                    files_info = ""
+                    if files_created or files_updated:
+                        files_info = "\n\nFiles:\n"
+                        if files_created:
+                            files_info += f"Created: {', '.join(files_created)}\n"
+                        if files_updated:
+                            files_info += f"Updated: {', '.join(files_updated)}\n"
+                    
                     completion_prompt = f"""You are {agent_id} completing an issue. Generate a brief completion comment.
 
 Issue: {issue_title}
 Description: {issue_desc}
-{f"Supertool result: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}
+{f"Supertool result: {supertool_result.output if supertool_result and supertool_result.success else 'None'}" if used_supertool else ""}{files_info}
 
 Generate a brief completion comment (1-2 sentences):"""
                     response = llm.invoke(completion_prompt)
@@ -275,6 +297,15 @@ Generate a brief completion comment (1-2 sentences):"""
                     completion_comment = "Issue completed successfully."
             else:
                 completion_comment = f"Completed using {'supertool' if used_supertool else 'standard process'}."
+            
+            # Add file information to comment
+            if files_created or files_updated:
+                files_section = "\n\n**Files:**\n"
+                if files_created:
+                    files_section += f"- Created: {', '.join(files_created)}\n"
+                if files_updated:
+                    files_section += f"- Updated: {', '.join(files_updated)}\n"
+                completion_comment += files_section
             
             client.add_comment(issue_id, completion_comment)
             
@@ -305,7 +336,6 @@ Generate a brief completion comment (1-2 sentences):"""
                 
                 # Log that we're starting work on this issue
                 logger.info(f"{agent_id}: Starting new issue {issue_id}: {issue_details.get('title', '')[:50]}")
-                client.activity_logger.info(f"AGENT:{agent_id} | ACTION:start_new_issue | ISSUE:{issue_id} | TITLE:{issue_details.get('title', '')[:50]}")
                 
                 # Read task history and comments to understand context
                 history = issue_details.get("history", [])

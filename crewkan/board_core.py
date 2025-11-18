@@ -306,11 +306,10 @@ class BoardClient:
     def add_comment(self, issue_id: str, comment: str) -> str:
         """
         Add a new comment event to an issue.
+        Comments are logged to board_activity.log automatically.
         """
         import uuid
         from crewkan.utils import now_iso
-        
-        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:add_comment | ISSUE:{issue_id} | COMMENT_LEN:{len(comment)}")
         
         path, issue = self.find_issue(issue_id)
         comment_id = f"C-{uuid.uuid4().hex[:8]}"
@@ -324,6 +323,10 @@ class BoardClient:
         }
         issue.setdefault("history", []).append(comment_entry)
         save_yaml(path, issue)
+        
+        # Log comment to board activity log
+        self.activity_logger.info(f"AGENT:{self.agent_id} | ACTION:add_comment | ISSUE:{issue_id} | COMMENT_LEN:{len(comment)} | COMMENT_PREVIEW:{comment[:100]}")
+        
         return comment_id
     
     def get_comments(self, issue_id: str) -> list[dict]:
