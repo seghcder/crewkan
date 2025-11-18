@@ -213,7 +213,15 @@ def create_agent_node(board_root: str, agent_id: str):
                 # Capture workspace state before work starts
                 workspace_files_before = set()
                 if workspace_path.exists():
-                    workspace_files_before = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
+                    board_root_path = Path(board_root).resolve()
+                    for f in workspace_path.rglob("*"):
+                        if f.is_file():
+                            try:
+                                rel_path = f.relative_to(board_root_path)
+                                workspace_files_before.add(rel_path)
+                            except ValueError:
+                                # File is outside board root, use absolute path as string
+                                workspace_files_before.add(str(f))
                 
                 used_supertool = False
                 supertool_result = None
@@ -334,7 +342,15 @@ Use the workspace path when creating or modifying files."""
                 # Scan workspace for files created during this task
                 workspace_files_after = set()
                 if workspace_path.exists():
-                    workspace_files_after = {f.relative_to(Path(board_root)) for f in workspace_path.rglob("*") if f.is_file()}
+                    board_root_path = Path(board_root).resolve()
+                    for f in workspace_path.rglob("*"):
+                        if f.is_file():
+                            try:
+                                rel_path = f.relative_to(board_root_path)
+                                workspace_files_after.add(rel_path)
+                            except ValueError:
+                                # File is outside board root, use absolute path as string
+                                workspace_files_after.add(str(f))
                 
                 # Find newly created files
                 new_files = workspace_files_after - workspace_files_before
