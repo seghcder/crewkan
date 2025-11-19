@@ -11,4 +11,5 @@ agent_schema:
   skills: list(str(), required=False)
   metadata: map(required=False)
   supertools: map(required=False)
+  system_prompt: str(required=False)
 

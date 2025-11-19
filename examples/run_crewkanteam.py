@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
 Run the CrewKan team board for a specified number of steps.
+
+DEPRECATED: This file uses LangGraph orchestration and hardcoded workflow logic.
+For new implementations, use:
+- crewkan/agent_runner.py - Standalone agent runner
+- examples/run_crewkanteam_multiprocess.py - Multiprocessing coordinator
+
+This file is kept for reference but should not be used for new deployments.
 """
 
 import os

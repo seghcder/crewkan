@@ -15,6 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from crewkan.board_core import BoardClient
 from crewkan.agent_framework.executor import SupertoolExecutor
 from crewkan.agent_framework.registry import get_registry
+from crewkan.agent_framework.test_supertools_startup import (
+    test_supertool_availability,
+    test_all_supertools,
+    validate_supertools_startup
+)
 
 
 class TestSupertools(unittest.TestCase):
@@ -109,6 +114,70 @@ class TestSupertools(unittest.TestCase):
         issue_details = client.get_issue_details(issue_id)
         self.assertEqual(issue_details["title"], "Test Issue")
         print("✓ Issue details retrieved correctly")
+    
+    def test_supertool_availability_check(self):
+        """Test checking supertool availability."""
+        executor = SupertoolExecutor(str(self.board_root), "test-agent")
+        available_tools = executor.list_available_tools()
+        
+        if isinstance(available_tools, dict) and available_tools:
+            # Test first available tool
+            tool_id = list(available_tools.keys())[0]
+            result = test_supertool_availability(
+                str(self.board_root),
+                "test-agent",
+                tool_id
+            )
+            self.assertIsNotNone(result)
+            print(f"✓ Availability check: {result}")
+        elif isinstance(available_tools, list) and available_tools:
+            tool_id = available_tools[0]
+            result = test_supertool_availability(
+                str(self.board_root),
+                "test-agent",
+                tool_id
+            )
+            self.assertIsNotNone(result)
+            print(f"✓ Availability check: {result}")
+        else:
+            print("⚠ No supertools available to test")
+    
+    def test_all_supertools(self):
+        """Test listing and checking all supertools."""
+        results = test_all_supertools(str(self.board_root), "test-agent")
+        self.assertIsInstance(results, list)
+        print(f"✓ Tested {len(results)} supertools")
+        for result in results:
+            print(f"  {result}")
+    
+    def test_startup_validation(self):
+        """Test startup validation function."""
+        all_passed, results = validate_supertools_startup(
+            str(self.board_root),
+            "test-agent"
+        )
+        self.assertIsInstance(all_passed, bool)
+        self.assertIsInstance(results, list)
+        print(f"✓ Startup validation: {'PASSED' if all_passed else 'FAILED'}")
+        print(f"  Results: {len(results)} tools tested")
+    
+    def test_permission_check(self):
+        """Test that permission checking works."""
+        executor = SupertoolExecutor(str(self.board_root), "test-agent")
+        available_tools = executor.list_available_tools()
+        
+        if isinstance(available_tools, dict) and available_tools:
+            tool_id = list(available_tools.keys())[0]
+            can_use = executor.can_use_tool(tool_id)
+            self.assertIsInstance(can_use, bool)
+            print(f"✓ Permission check for {tool_id}: {can_use}")
+        elif isinstance(available_tools, list) and available_tools:
+            tool_id = available_tools[0]
+            can_use = executor.can_use_tool(tool_id)
+            self.assertIsInstance(can_use, bool)
+            print(f"✓ Permission check for {tool_id}: {can_use}")
+        else:
+            print("⚠ No supertools available to test permissions")
 
 
 if __name__ == "__main__":

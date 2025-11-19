@@ -125,6 +125,44 @@ class BoardClient:
         """Get list of all agents on the board."""
         return list(self._agent_index.values())
     
+    def get_agent_system_prompt(self, agent_id: str | None = None) -> str | None:
+        """
+        Get the system prompt for an agent, resolving relative paths if needed.
+        
+        Args:
+            agent_id: Agent ID to get prompt for (defaults to current agent)
+            
+        Returns:
+            System prompt string, or None if not specified
+        """
+        agent_id = agent_id or self.agent_id
+        agent = self.get_agent(agent_id)
+        if not agent:
+            return None
+        
+        system_prompt = agent.get("system_prompt")
+        if not system_prompt:
+            return None
+        
+        # If it's a file path (relative or absolute), load it
+        if isinstance(system_prompt, str) and ("/" in system_prompt or "\\" in system_prompt):
+            # Resolve relative to board root
+            prompt_path = Path(system_prompt)
+            if not prompt_path.is_absolute():
+                prompt_path = self.root / prompt_path
+            else:
+                prompt_path = Path(system_prompt)
+            
+            if prompt_path.exists() and prompt_path.is_file():
+                try:
+                    return prompt_path.read_text(encoding="utf-8")
+                except Exception as e:
+                    logger.warning(f"Failed to load system prompt from {prompt_path}: {e}")
+                    return system_prompt  # Return as-is if file can't be read
+        
+        # Return as-is if it's not a file path
+        return system_prompt
+    
     def get_issue_details(self, issue_id: str) -> dict:
         """Get full issue details including history/comments."""
         path, issue = self.find_issue(issue_id)
